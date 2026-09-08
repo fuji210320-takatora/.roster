@@ -2,16 +2,15 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import json
-import re
 
-# ページ基本設定（あの時のまま）
+# ページ基本設定
 st.set_page_config(
     page_title="NPB ROSTER LAB",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# --- 1. 球団コード対応表 ---
+# --- 1. 球団設定 ---
 TEAM_MAP = {
     "c": "広島東洋カープ", "t": "阪神タイガース", "g": "読売ジャイアンツ",
     "yb": "横浜DeNAベイスターズ", "d": "中日ドラゴンズ", "s": "東京ヤクルトスワローズ",
@@ -19,9 +18,7 @@ TEAM_MAP = {
     "e": "東北楽天ゴールデンイーグルス", "b": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
 }
 
-STATUS_LIST = ["残留", "戦力外", "育成移行", "現ドラ", "保留"]
-
-# --- 2. データ読み込み（ネット経由） ---
+# --- 2. データ読み込み ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
@@ -46,12 +43,6 @@ except Exception as e:
     st.error(f"データ読込エラー: {e}")
     st.stop()
 
-# --- 3. セッション管理 ---
-if "roster_status" not in st.session_state:
-    st.session_state.roster_status = {}
-if "promoted_players" not in st.session_state:
-    st.session_state.promoted_players = {}
-
 # サイドバー
 st.sidebar.title("⚾ 設定")
 available_teams = [t for t in TEAM_MAP.values() if t in df_raw["球団名"].values]
@@ -63,340 +54,418 @@ if st.sidebar.button("🔄 データを最新に更新"):
     st.cache_data.clear()
     st.rerun()
 
-team_all_df = df_raw[df_raw["球団名"] == selected_team].copy()
-shihai_df = team_all_df[team_all_df["契約区分"] == "支配下"].copy()
-ikusei_df = team_all_df[team_all_df["契約区分"] == "育成"].copy()
+# 選手データのJSON化（ブラウザ側にすべて渡して即時反応させる）
+team_df = df_raw[df_raw["球団名"] == selected_team].copy()
+players_list = []
+for _, r in team_df.iterrows():
+    p_age = int(r["年齢_num"]) if pd.notnull(r["年齢_num"]) else "-"
+    players_list.append({
+        "no": int(r["No"]),
+        "num": str(r["背番号"]),
+        "name": str(r["選手名"]),
+        "pos": str(r["守備位置"]),
+        "age": str(p_age),
+        "is_ikusei": r["契約区分"] == "育成",
+        "status": "残留"
+    })
 
-if selected_team not in st.session_state.roster_status:
-    st.session_state.roster_status[selected_team] = {
-        int(row["No"]): "残留" for _, row in shihai_df.iterrows()
-    }
-if selected_team not in st.session_state.promoted_players:
-    st.session_state.promoted_players[selected_team] = []
+players_json = json.dumps(players_list, ensure_ascii=False)
 
-current_status = st.session_state.roster_status[selected_team]
-promoted_list = st.session_state.promoted_players[selected_team]
-
-# 支配下に育成昇格組を合流
-promoted_df = ikusei_df[ikusei_df["No"].isin(promoted_list)].copy()
-target_df = pd.concat([shihai_df, promoted_df], ignore_index=True)
-
-for p_no in promoted_list:
-    p_no_int = int(p_no)
-    if p_no_int not in current_status:
-        current_status[p_no_int] = "残留"
-
-target_df["区分"] = target_df["No"].astype(int).map(current_status).fillna("残留")
-
-# --- 4. 集計計算 ---
-status_counts = {opt: (target_df["区分"] == opt).sum() for opt in STATUS_LIST}
-current_shihai_count = len(shihai_df)
-promoted_count = len(promoted_list)
-retained_total = status_counts["残留"] + status_counts["現ドラ"] + status_counts["保留"]
-
-# --- 5. メインヘッダー（あの時のレイアウト完全維持） ---
-st.markdown(f"""
-<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">
-    <h3 style="margin:0; font-size:1.25rem; font-weight:800;">{selected_team}</h3>
-    <span style="font-size:0.7rem; color:#666;">支配下 {current_shihai_count}名 / 育成 {len(ikusei_df)}名</span>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown(f"""
+# --- 3. アプリ本体（HTML + JavaScriptで完全自律動作） ---
+app_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-.metric-row {{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
-    margin-bottom: 4px;
-}}
-.metric-box {{
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 3px 4px;
-    text-align: center;
-}}
-.m-label {{ font-size: 0.65rem; color: #64748b; }}
-.m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    body {{ background: transparent; padding: 4px; overflow-x: hidden; }}
+
+    /* タイトルとサマリー */
+    .header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }}
+    .title {{ font-size: 1.25rem; font-weight: 800; color: #111; }}
+    .sub {{ font-size: 0.7rem; color: #666; }}
+
+    /* 上部ダッシュボード */
+    .metric-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        margin-bottom: 8px;
+    }}
+    .metric-box {{
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 3px 4px;
+        text-align: center;
+    }}
+    .m-label {{ font-size: 0.65rem; color: #64748b; }}
+    .m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
+
+    /* タブ切り替え */
+    .nav-tabs {{
+        display: flex;
+        border-bottom: 2px solid #e2e8f0;
+        margin-bottom: 8px;
+        gap: 8px;
+    }}
+    .tab-btn {{
+        padding: 6px 8px;
+        font-size: 0.82rem;
+        font-weight: bold;
+        color: #64748b;
+        background: none;
+        border: none;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -2px;
+    }}
+    .tab-btn.active {{
+        color: #dc2626;
+        border-bottom: 2px solid #dc2626;
+    }}
+
+    /* ポジションサブタブ */
+    .pos-tabs {{
+        display: flex;
+        gap: 6px;
+        margin-bottom: 8px;
+        overflow-x: auto;
+    }}
+    .pos-btn {{
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        background: #fff;
+        color: #475569;
+        cursor: pointer;
+    }}
+    .pos-btn.active {{
+        background: #334155;
+        color: #fff;
+        border-color: #334155;
+    }}
+
+    /* ★完全な横3列・均等サイズグリッド★ */
+    .grid {{
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 5px;
+        width: 100%;
+        margin-bottom: 16px;
+    }}
+
+    .card {{
+        height: 58px;
+        border-radius: 6px;
+        padding: 4px 2px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+        text-align: center;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+        transition: transform 0.05s ease, background-color 0.15s ease;
+    }}
+    .card:active {{ transform: scale(0.95); }}
+    
+    .c-name {{
+        font-size: 11.5px;
+        font-weight: bold;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 100%;
+        line-height: 1.2;
+    }}
+    .c-sub {{ font-size: 9.5px; opacity: 0.8; line-height: 1; }}
+    .c-stat {{ font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.1; }}
+
+    /* ステータス別の背景色・文字色 */
+    .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
+    .stat-残留 .c-stat {{ background-color: #f1f5f9; color: #475569; }}
+
+    .stat-戦力外 {{ background-color: #fee2e2; border: 1.5px solid #f87171; color: #991b1b; }}
+    .stat-戦力外 .c-stat {{ background-color: #fecaca; color: #991b1b; }}
+
+    .stat-育成移行 {{ background-color: #dbeafe; border: 1.5px solid #60a5fa; color: #1e40af; }}
+    .stat-育成移行 .c-stat {{ background-color: #bfdbfe; color: #1e40af; }}
+
+    .stat-現ドラ {{ background-color: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }}
+    .stat-現ドラ .c-stat {{ background-color: #fde68a; color: #92400e; }}
+
+    .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
+    .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
+
+    /* モーダルポップアップ */
+    .modal-overlay {{
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        justify-content: center;
+        align-items: center;
+        z-index: 999;
+    }}
+    .modal {{
+        background: white;
+        border-radius: 10px;
+        padding: 14px;
+        width: 82%;
+        max-width: 280px;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }}
+    .modal h4 {{ font-size: 14px; margin-bottom: 12px; color: #111; }}
+    .opt-btn {{
+        width: 100%;
+        padding: 9px 0;
+        margin-bottom: 6px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: bold;
+        border: 1px solid #ddd;
+        cursor: pointer;
+    }}
+
+    /* 補強エリア（最下部） */
+    .bottom-section {{
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 2px solid #e2e8f0;
+    }}
+    .input-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        margin-bottom: 8px;
+    }}
+    .input-box {{
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 4px 6px;
+    }}
+    .input-box label {{ font-size: 0.7rem; color: #475569; display: block; }}
+    .input-box input {{ width: 100%; font-size: 0.95rem; font-weight: bold; padding: 2px; border: 1px solid #ccc; border-radius: 4px; }}
+
+    .result-banner {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #f1f5f9;
+        border-radius: 8px;
+        padding: 8px 10px;
+        margin-top: 6px;
+    }}
 </style>
-<div class="metric-row">
-    <div class="metric-box"><div class="m-label">支配下</div><div class="m-val">{current_shihai_count}人</div></div>
-    <div class="metric-box"><div class="m-label">残留</div><div class="m-val">{status_counts['残留']}人</div></div>
-    <div class="metric-box"><div class="m-label">戦力外</div><div class="m-val" style="color:#dc2626;">{status_counts['戦力外']}人</div></div>
-</div>
-<div class="metric-row">
-    <div class="metric-box"><div class="m-label">育成落</div><div class="m-val" style="color:#2563eb;">{status_counts['育成移行']}人</div></div>
-    <div class="metric-box"><div class="m-label">現ドラ</div><div class="m-val" style="color:#d97706;">{status_counts['現ドラ']}人</div></div>
-    <div class="metric-box"><div class="m-label">昇格</div><div class="m-val" style="color:#16a34a;">{promoted_count}人</div></div>
-</div>
-<hr style="margin: 8px 0 6px 0; border: none; border-top: 1px solid #e2e8f0;"/>
-""", unsafe_allow_html=True)
+</head>
+<body>
 
-# --- 6. タブ切り替え ---
-tab_roster, tab_ikusei, tab_depth, tab_raw = st.tabs(["📋 戦力整理", "🌱 育成昇格", "📊 デプス", "📄 出力"])
+    <!-- ヘッダー -->
+    <div class="header">
+        <div class="title">{selected_team}</div>
+        <div class="sub" id="headerSub"></div>
+    </div>
 
-# 【タブ1: 戦力整理（完全維持HTMLグリッド ＋ 公式双方向通信）】
-with tab_roster:
-    pos_list = ["投手", "捕手", "内野手", "外野手"]
-    pos_tabs = st.tabs([f"{p} ({len(target_df[target_df['守備位置'] == p])})" for p in pos_list])
+    <!-- 上部ダッシュボード -->
+    <div class="metric-grid">
+        <div class="metric-box"><div class="m-label">支配下</div><div class="m-val" id="cntShihai">0人</div></div>
+        <div class="metric-box"><div class="m-label">残留</div><div class="m-val" id="cntZanryu">0人</div></div>
+        <div class="metric-box"><div class="m-label">戦力外</div><div class="m-val" id="cntSenryokugai" style="color:#dc2626;">0人</div></div>
+        <div class="metric-box"><div class="m-label">育成落</div><div class="m-val" id="cntIkuseiOchi" style="color:#2563eb;">0人</div></div>
+        <div class="metric-box"><div class="m-label">現ドラ</div><div class="m-val" id="cntGendora" style="color:#d97706;">0人</div></div>
+        <div class="metric-box"><div class="m-label">昇格</div><div class="m-val" id="cntShokaku" style="color:#16a34a;">0人</div></div>
+    </div>
 
-    for p_tab, pos in zip(pos_tabs, pos_list):
-        with p_tab:
-            p_df = target_df[target_df["守備位置"] == pos].copy()
-            
-            players_data = []
-            for _, r in p_df.iterrows():
-                p_no = int(r["No"])
-                p_age = int(r["年齢_num"]) if pd.notnull(r["年齢_num"]) else "-"
-                is_p = p_no in [int(x) for x in promoted_list]
-                players_data.append({
-                    "no": p_no,
-                    "num": str(r["背番号"]),
-                    "name": str(r["選手名"]),
-                    "age": str(p_age),
-                    "status": current_status.get(p_no, "残留"),
-                    "promoted": is_p
-                })
+    <!-- タブ -->
+    <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchMainTab('roster')">📋 戦力整理</button>
+        <button class="tab-btn" onclick="switchMainTab('ikusei')">🌱 育成昇格</button>
+    </div>
 
-            cards_json = json.dumps(players_data, ensure_ascii=False)
-            grid_height = max(240, ((len(players_data) + 2) // 3) * 66 + 30)
+    <!-- ポジション選択 -->
+    <div id="posTabsContainer" class="pos-tabs">
+        <button class="pos-btn active" onclick="switchPos('投手')">投手</button>
+        <button class="pos-btn" onclick="switchPos('捕手')">捕手</button>
+        <button class="pos-btn" onclick="switchPos('内野手')">内野手</button>
+        <button class="pos-btn" onclick="switchPos('外野手')">外野手</button>
+    </div>
 
-            # ★HTML/CSSレイアウトは1文字も変えず完全維持★
-            # 変更点：公式の streamlit-component-lib を読み込み、親へ直接安全に値を渡す
-            html_code = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <!-- Streamlit公式のiframe通信ライブラリ -->
-            <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.4.0/dist/streamlit.js"></script>
-            <style>
-                * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-                body {{ background: transparent; padding: 2px; overflow-x: hidden; }}
-                
-                .grid {{
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 5px;
-                    width: 100%;
-                }}
+    <!-- 選手カードグリッド -->
+    <div class="grid" id="cardGrid"></div>
 
-                .card {{
-                    height: 58px;
-                    border-radius: 6px;
-                    padding: 4px 2px;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: space-between;
-                    align-items: center;
-                    cursor: pointer;
-                    user-select: none;
-                    text-align: center;
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-                    transition: transform 0.05s ease;
-                }}
-                .card:active {{ transform: scale(0.96); }}
-                
-                .c-name {{
-                    font-size: 11.5px;
-                    font-weight: bold;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    width: 100%;
-                    line-height: 1.2;
-                }}
-                .c-sub {{
-                    font-size: 9.5px;
-                    opacity: 0.8;
-                    line-height: 1;
-                }}
-                .c-stat {{
-                    font-size: 10px;
-                    font-weight: bold;
-                    border-radius: 3px;
-                    padding: 1px 4px;
-                    line-height: 1.1;
-                }}
+    <!-- 最下部：補強シミュレーション -->
+    <div class="bottom-section">
+        <b style="font-size:0.85rem; color:#334155;">📥 補強シミュレーション</b>
+        <div class="input-grid" style="margin-top:4px;">
+            <div class="input-box"><label>ドラフト支配下</label><input type="number" id="inDraft" value="5" min="0" max="15" onchange="calcTotals()"></div>
+            <div class="input-box"><label>FA・トレード</label><input type="number" id="inFa" value="0" min="0" max="10" onchange="calcTotals()"></div>
+            <div class="input-box"><label>新外国人</label><input type="number" id="inForeign" value="1" min="0" max="10" onchange="calcTotals()"></div>
+            <div class="input-box"><label>その他新加入</label><input type="number" id="inOther" value="0" min="0" max="10" onchange="calcTotals()"></div>
+        </div>
 
-                /* 区分ごとの背景色・文字色・枠線色 */
-                .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
-                .stat-残留 .c-stat {{ background-color: #f1f5f9; color: #475569; }}
+        <div class="result-banner">
+            <div>
+                <div style="font-size:0.75rem; color:#475569;">翌年予想支配下</div>
+                <div style="font-size:1.1rem; font-weight:800; color:#0f172a;" id="nextYearTotal">65人</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.75rem; color:#475569;">70人まで</div>
+                <div style="font-size:1.1rem; font-weight:800;" id="remainingSlots">あと 5 枠</div>
+            </div>
+        </div>
+    </div>
 
-                .stat-戦力外 {{ background-color: #fee2e2; border: 1.5px solid #f87171; color: #991b1b; }}
-                .stat-戦力外 .c-stat {{ background-color: #fecaca; color: #991b1b; }}
+    <!-- 区分選択モーダル -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <h4 id="modalTitle">選手名</h4>
+            <button class="opt-btn stat-残留" onclick="applyStatus('残留')">残留</button>
+            <button class="opt-btn stat-戦力外" onclick="applyStatus('戦力外')">戦力外</button>
+            <button class="opt-btn stat-育成移行" onclick="applyStatus('育成移行')">育成移行</button>
+            <button class="opt-btn stat-現ドラ" onclick="applyStatus('現ドラ')">現役ドラフト</button>
+            <button class="opt-btn stat-保留" onclick="applyStatus('保留')">保留</button>
+        </div>
+    </div>
 
-                .stat-育成移行 {{ background-color: #dbeafe; border: 1.5px solid #60a5fa; color: #1e40af; }}
-                .stat-育成移行 .c-stat {{ background-color: #bfdbfe; color: #1e40af; }}
+<script>
+    // データ初期化
+    const allPlayers = {players_json};
+    let currentMainTab = 'roster';
+    let currentPos = '投手';
+    let selectedPlayerNo = null;
 
-                .stat-現ドラ {{ background-color: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }}
-                .stat-現ドラ .c-stat {{ background-color: #fde68a; color: #92400e; }}
+    // 画面初期描画
+    render();
 
-                .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
-                .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
+    function switchMainTab(tab) {{
+        currentMainTab = tab;
+        document.querySelectorAll('.tab-btn').forEach((b, i) => {{
+            b.classList.toggle('active', (tab === 'roster' && i === 0) || (tab === 'ikusei' && i === 1));
+        }});
+        document.getElementById('posTabsContainer').style.display = (tab === 'roster') ? 'flex' : 'none';
+        render();
+    }}
 
-                /* モーダルポップアップ */
-                .modal-overlay {{
-                    display: none;
-                    position: fixed;
-                    top: 0; left: 0; right: 0; bottom: 0;
-                    background: rgba(0,0,0,0.5);
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 999;
-                }}
-                .modal {{
-                    background: white;
-                    border-radius: 10px;
-                    padding: 14px;
-                    width: 82%;
-                    max-width: 280px;
-                    text-align: center;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-                }}
-                .modal h4 {{ font-size: 13px; margin-bottom: 10px; color: #111; }}
-                .opt-btn {{
-                    width: 100%;
-                    padding: 9px 0;
-                    margin-bottom: 6px;
-                    border-radius: 6px;
-                    font-size: 13px;
-                    font-weight: bold;
-                    border: 1px solid #ddd;
-                    cursor: pointer;
-                }}
-            </style>
-            </head>
-            <body>
-                <div class="grid" id="playerGrid"></div>
+    function switchPos(pos) {{
+        currentPos = pos;
+        document.querySelectorAll('.pos-btn').forEach(b => {{
+            b.classList.toggle('active', b.innerText === pos);
+        }});
+        render();
+    }}
 
-                <!-- 選択肢モーダル -->
-                <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
-                    <div class="modal" onclick="event.stopPropagation()">
-                        <h4 id="modalTitle">選手名</h4>
-                        <button class="opt-btn stat-残留" onclick="selectStatus('残留')">残留</button>
-                        <button class="opt-btn stat-戦力外" onclick="selectStatus('戦力外')">戦力外</button>
-                        <button class="opt-btn stat-育成移行" onclick="selectStatus('育成移行')">育成移行</button>
-                        <button class="opt-btn stat-現ドラ" onclick="selectStatus('現ドラ')">現役ドラフト</button>
-                        <button class="opt-btn stat-保留" onclick="selectStatus('保留')">保留</button>
-                    </div>
-                </div>
+    function render() {{
+        const grid = document.getElementById('cardGrid');
+        grid.innerHTML = '';
 
-                <script>
-                    const players = {cards_json};
-                    const grid = document.getElementById("playerGrid");
-                    let activePlayerNo = null;
+        if (currentMainTab === 'roster') {{
+            // 支配下 ＋ 昇格した育成選手
+            const target = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === currentPos);
+            target.forEach(p => {{
+                const card = document.createElement('div');
+                card.className = `card stat-${{p.status}}`;
+                const badge = p.promoted ? '🌱' : '';
+                card.innerHTML = `
+                    <div class="c-name">#${{p.num}} ${{p.name}}${{badge}}</div>
+                    <div class="c-sub">${{p.age}}歳</div>
+                    <div class="c-stat">${{p.status}}</div>
+                `;
+                // タップでモーダルを開く
+                card.onclick = () => openModal(p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`);
+                grid.appendChild(card);
+            }});
+        }} else {{
+            // 育成選手一覧（昇格トグル）
+            const target = allPlayers.filter(p => p.is_ikusei);
+            target.forEach(p => {{
+                const card = document.createElement('div');
+                card.className = `card ${{p.promoted ? 'stat-育成移行' : 'stat-残留'}}`;
+                card.innerHTML = `
+                    <div class="c-name">#${{p.num}} ${{p.name}}</div>
+                    <div class="c-sub">${{p.pos}} / ${{p.age}}歳</div>
+                    <div class="c-stat">${{p.promoted ? '支配下昇格中' : '育成'}}</div>
+                `;
+                // タップで昇格/解除を切り替え
+                card.onclick = () => {{
+                    p.promoted = !p.promoted;
+                    render();
+                }};
+                grid.appendChild(card);
+            }});
+        }}
+        calcTotals();
+    }}
 
-                    players.forEach(p => {{
-                        const card = document.createElement("div");
-                        card.className = `card stat-${{p.status}}`;
-                        const badge = p.promoted ? "🌱" : "";
-                        card.innerHTML = `
-                            <div class="c-name">#${{p.num}} ${{p.name}}${{badge}}</div>
-                            <div class="c-sub">${{p.age}}歳</div>
-                            <div class="c-stat">${{p.status}}</div>
-                        `;
-                        card.onclick = () => openModal(p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`);
-                        grid.appendChild(card);
-                    }});
+    function openModal(no, title) {{
+        selectedPlayerNo = no;
+        document.getElementById('modalTitle').innerText = title;
+        document.getElementById('modalOverlay').style.display = 'flex';
+    }}
 
-                    function openModal(no, title) {{
-                        activePlayerNo = no;
-                        document.getElementById("modalTitle").innerText = title;
-                        document.getElementById("modalOverlay").style.display = "flex";
-                    }}
+    function closeModal() {{
+        document.getElementById('modalOverlay').style.display = 'none';
+    }}
 
-                    function closeModal(e) {{
-                        document.getElementById("modalOverlay").style.display = "none";
-                    }}
+    // ★ここで即座に色・文字・数字を更新★
+    function applyStatus(status) {{
+        closeModal();
+        const p = allPlayers.find(x => x.no === selectedPlayerNo);
+        if (p) {{
+            p.status = status;
+            render(); // 即座に再描画（色と文字が変わる）
+        }}
+    }}
 
-                    function selectStatus(status) {{
-                        document.getElementById("modalOverlay").style.display = "none";
-                        // ★URLではなく、Streamlit公式通信で安全に親へ値を送信★
-                        Streamlit.setComponentValue({{ no: activePlayerNo, status: status }});
-                    }}
+    function calcTotals() {{
+        const shihaiOrigin = allPlayers.filter(p => !p.is_ikusei).length;
+        const ikuseiOrigin = allPlayers.filter(p => p.is_ikusei).length;
+        document.getElementById('headerSub').innerText = `支配下 ${{shihaiOrigin}}名 / 育成 ${{ikuseiOrigin}}名`;
 
-                    // Streamlit初期化通知
-                    Streamlit.setFrameHeight();
-                </script>
-            </body>
-            </html>
-            """
-            
-            # HTMLからの戻り値を安全に受け取る（公式の戻り値機能）
-            component_val = components.html(html_code, height=grid_height, scrolling=False)
-            
-            # 選択された値があればセッションに反映して再描画
-            if component_val and isinstance(component_val, dict):
-                c_no = int(component_val.get("no"))
-                c_stat = str(component_val.get("status"))
-                if current_status.get(c_no) != c_stat:
-                    st.session_state.roster_status[selected_team][c_no] = c_stat
-                    st.rerun()
+        const activeShihai = allPlayers.filter(p => !p.is_ikusei || p.promoted);
+        const promotedCount = allPlayers.filter(p => p.is_ikusei && p.promoted).length;
 
-# 【タブ2: 育成昇格】
-with tab_ikusei:
-    st.caption("チェックを入れると支配下へ昇格します")
-    if len(ikusei_df) == 0:
-        st.info("育成選手はいません。")
-    else:
-        for row_idx in range(0, len(ikusei_df), 3):
-            row_players = ikusei_df.iloc[row_idx:row_idx+3]
-            ikusei_cols = st.columns(3)
-            for col_idx, (_, player) in enumerate(row_players.iterrows()):
-                p_no = int(player["No"])
-                p_name = player["選手名"]
-                p_age = int(player["年齢_num"]) if pd.notnull(player["年齢_num"]) else "-"
-                is_checked = p_no in [int(x) for x in promoted_list]
-                with ikusei_cols[col_idx]:
-                    st.markdown(f"<div style='border:1px solid #cbd5e1; border-radius:5px; padding:3px; text-align:center; background:#fff;'><b style='font-size:0.72rem;'>#{player['背番号']} {p_name}</b><br><span style='font-size:0.6rem; color:#666;'>{player['守備位置']} {p_age}歳</span></div>", unsafe_allow_html=True)
-                    checked = st.checkbox("昇格", value=is_checked, key=f"promo_{p_no}")
-                    if checked != is_checked:
-                        if checked:
-                            st.session_state.promoted_players[selected_team].append(p_no)
-                        else:
-                            st.session_state.promoted_players[selected_team].remove(p_no)
-                        st.rerun()
+        const counts = {{ '残留': 0, '戦力外': 0, '育成移行': 0, '現ドラ': 0, '保留': 0 }};
+        activeShihai.forEach(p => {{
+            if (counts[p.status] !== undefined) counts[p.status]++;
+        }});
 
-# 【タブ3: 年齢別デプス】
-with tab_depth:
-    active_df = target_df[target_df["区分"].isin(["残留", "現ドラ", "保留"])].copy()
-    bins = [0, 22, 25, 29, 34, 100]
-    labels = ["〜22", "23-25", "26-29", "30-34", "35〜"]
-    active_df["年代"] = pd.cut(active_df["年齢_num"], bins=bins, labels=labels, right=True)
-    depth_matrix = pd.crosstab(active_df["守備位置"], active_df["年代"], dropna=False).reindex(pos_list)
-    st.dataframe(depth_matrix, use_container_width=True)
+        document.getElementById('cntShihai').innerText = `${{shihaiOrigin}}人`;
+        document.getElementById('cntZanryu').innerText = `${{counts['残留']}}人`;
+        document.getElementById('cntSenryokugai').innerText = `${{counts['戦力外']}}人`;
+        document.getElementById('cntIkuseiOchi').innerText = `${{counts['育成移行']}}人`;
+        document.getElementById('cntGendora').innerText = `${{counts['現ドラ']}}人`;
+        document.getElementById('cntShokaku').innerText = `${{promotedCount}}人`;
 
-# 【タブ4: データ出力】
-with tab_raw:
-    st.dataframe(target_df[["背番号", "選手名", "守備位置", "年齢", "区分"]], use_container_width=True)
-    csv_data = target_df[["背番号", "選手名", "守備位置", "年齢", "区分"]].to_csv(index=False).encode("utf-8_sig")
-    st.download_button(label="📥 CSV保存", data=csv_data, file_name=f"{selected_team}_sim.csv", mime="text/csv")
+        // 最下部の枠計算
+        const inDraft = parseInt(document.getElementById('inDraft').value) || 0;
+        const inFa = parseInt(document.getElementById('inFa').value) || 0;
+        const inForeign = parseInt(document.getElementById('inForeign').value) || 0;
+        const inOther = parseInt(document.getElementById('inOther').value) || 0;
+        const totalNew = inDraft + inFa + inForeign + inOther;
 
-# --- 7. 最下部：補強シミュレーション & 枠計算 ---
-st.markdown("<hr style='margin: 12px 0 6px 0;'/>", unsafe_allow_html=True)
-st.markdown("<b style='font-size:0.9rem;'>📥 補強シミュレーション</b>", unsafe_allow_html=True)
+        const retainedTotal = counts['残留'] + counts['現ドラ'] + counts['保留'];
+        const nextTotal = retainedTotal + totalNew;
+        const remaining = 70 - nextTotal;
 
-b1, b2 = st.columns(2)
-with b1:
-    draft_in = st.number_input("ドラフト支配下", min_value=0, max_value=15, value=5)
-    foreign_in = st.number_input("新外国人", min_value=0, max_value=10, value=1)
-with b2:
-    fa_trade_in = st.number_input("FA・トレード", min_value=0, max_value=10, value=0)
-    other_in = st.number_input("その他", min_value=0, max_value=10, value=0)
+        document.getElementById('nextYearTotal').innerText = `${{nextTotal}}人`;
+        const remEl = document.getElementById('remainingSlots');
+        if (remaining >= 0) {{
+            remEl.innerHTML = `<span style="color:#16a34a;">あと ${{remaining}} 枠</span>`;
+        }} else {{
+            remEl.innerHTML = `<span style="color:#dc2626;">${{-remaining}}人 超過</span>`;
+        }}
+    }}
+</script>
+</body>
+</html>
+"""
 
-total_new_acquisitions = draft_in + fa_trade_in + foreign_in + other_in
-next_year_total = retained_total + total_new_acquisitions
-remaining_slots = 70 - next_year_total
-
-res1, res2 = st.columns(2)
-with res1:
-    st.markdown(f"**翌年支配下: {next_year_total}人**")
-    st.caption(f"(所属 {retained_total} + 新規 {total_new_acquisitions})")
-with res2:
-    if remaining_slots >= 0:
-        st.markdown(f"**70枠まで: あと <span style='color:#16a34a; font-size:1.15rem; font-weight:bold;'>{remaining_slots}</span> 枠**", unsafe_allow_html=True)
-    else:
-        st.markdown(f"**超過: <span style='color:#dc2626; font-size:1.15rem; font-weight:bold;'>{-remaining_slots}</span> 人**", unsafe_allow_html=True)
+# HTMLアプリを描画（高さ固定でスマホスクロール対応）
+components.html(app_html, height=880, scrolling=False)
