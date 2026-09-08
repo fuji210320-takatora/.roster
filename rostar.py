@@ -18,6 +18,14 @@ TEAM_MAP = {
     "e": "東北楽天ゴールデンイーグルス", "b": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
 }
 
+# チーム頭文字コード
+TEAM_CODE_MAP = {
+    "広島東洋カープ": "C", "阪神タイガース": "T", "読売ジャイアンツ": "G",
+    "横浜DeNAベイスターズ": "DB", "中日ドラゴンズ": "D", "東京ヤクルトスワローズ": "S",
+    "福岡ソフトバンクホークス": "H", "北海道日本ハムファイターズ": "F", "千葉ロッテマリーンズ": "M",
+    "東北楽天ゴールデンイーグルス": "E", "オリックス・バファローズ": "B", "埼玉西武ライオンズ": "L",
+}
+
 # --- 2. データ読み込み＆学年年齢計算 ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
@@ -29,7 +37,6 @@ def calc_academic_age(birth_str, target_year=2026):
         b_month = dt.month
         b_day = dt.day
 
-        # 4月1日以前（早生まれ）は前年度扱い
         if (b_month < 4) or (b_month == 4 and b_day == 1):
             school_year_birth = b_year - 1
         else:
@@ -74,6 +81,8 @@ if st.sidebar.button("🔄 データを最新に更新"):
     st.cache_data.clear()
     st.rerun()
 
+team_code = TEAM_CODE_MAP.get(selected_team, "NPB")
+
 # 選手データのJSON化
 team_df = df_raw[df_raw["球団名"] == selected_team].copy()
 players_list = []
@@ -100,8 +109,10 @@ app_html = f"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- html2canvas: 画像保存ライブラリ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", Meiryo, sans-serif; }}
     body {{ background: transparent; padding: 4px 4px 30px 4px; overflow-x: hidden; position: relative; }}
 
     /* タイトルとサマリー */
@@ -142,11 +153,12 @@ app_html = f"""
         display: flex;
         border-bottom: 2px solid #e2e8f0;
         margin-bottom: 8px;
-        gap: 8px;
+        gap: 6px;
+        overflow-x: auto;
     }}
     .tab-btn {{
         padding: 6px 8px;
-        font-size: 0.82rem;
+        font-size: 0.78rem;
         font-weight: bold;
         color: #64748b;
         background: none;
@@ -154,13 +166,14 @@ app_html = f"""
         cursor: pointer;
         border-bottom: 2px solid transparent;
         margin-bottom: -2px;
+        white-space: nowrap;
     }}
     .tab-btn.active {{
         color: #dc2626;
         border-bottom: 2px solid #dc2626;
     }}
 
-    /* ポジションサブタブ（戦力整理用） */
+    /* ポジションサブタブ */
     .pos-tabs {{
         display: flex;
         gap: 6px;
@@ -182,7 +195,7 @@ app_html = f"""
         border-color: #334155;
     }}
 
-    /* 育成タブ内のポジション区切り見出し */
+    /* 育成タブ内の見出し */
     .ikusei-sec-title {{
         font-size: 0.8rem;
         font-weight: bold;
@@ -199,7 +212,7 @@ app_html = f"""
         background: #e2e8f0;
     }}
 
-    /* カードグリッド */
+    /* カードグリッド（3列） */
     .grid {{
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -395,6 +408,134 @@ app_html = f"""
         padding: 8px 10px;
         margin-top: 6px;
     }}
+
+    /* ★★★ 画像ダウンロード用キャンバス・スタイル（本家再現） ★★★ */
+    .export-container {{
+        width: 100%;
+        overflow-x: auto;
+        margin-bottom: 12px;
+    }}
+    .download-bar {{
+        display: flex;
+        justify-content: center;
+        margin: 10px 0 16px 0;
+    }}
+    .download-btn {{
+        background: #0f172a;
+        color: #ffffff;
+        font-size: 0.85rem;
+        font-weight: bold;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }}
+    .download-btn:active {{ transform: scale(0.97); }}
+
+    /* 画像化される本体（幅460px固定でスマホでも崩れないレイアウト） */
+    #captureArea {{
+        width: 460px;
+        background: #ffffff;
+        padding: 16px 14px;
+        margin: 0 auto;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }}
+    .exp-top {{
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 10px;
+    }}
+    .exp-sub-title {{ font-size: 10px; color: #64748b; font-weight: bold; }}
+    .exp-team-badge {{
+        background: #091a2b;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 900;
+        width: 32px;
+        height: 22px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }}
+    .exp-title-area {{ text-align: center; margin-bottom: 12px; }}
+    .exp-team-name {{ font-size: 22px; font-weight: 900; color: #0f172a; margin-bottom: 2px; }}
+    .exp-year-text {{ font-size: 10.5px; color: #64748b; font-weight: 600; }}
+
+    .exp-summary-row {{
+        display: flex;
+        justify-content: space-between;
+        border-top: 1px solid #f1f5f9;
+        border-bottom: 1px solid #f1f5f9;
+        padding: 8px 4px;
+        margin-bottom: 8px;
+        text-align: center;
+    }}
+    .exp-sum-item {{ flex: 1; }}
+    .exp-sum-item:not(:last-child) {{ border-right: 1px solid #f1f5f9; }}
+    .exp-sum-label {{ font-size: 10px; color: #475569; }}
+    .exp-sum-val {{ font-size: 13px; font-weight: 900; }}
+
+    .exp-legend-row {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 9px;
+        color: #64748b;
+    }}
+    .exp-legends {{ display: flex; gap: 6px; }}
+    .exp-leg-item {{ display: flex; align-items: center; gap: 3px; }}
+    .exp-leg-box {{ width: 10px; height: 10px; border-radius: 2px; border: 1px solid #cbd5e1; }}
+
+    .exp-pos-sec {{ margin-bottom: 12px; }}
+    .exp-pos-header {{
+        font-size: 14px;
+        font-weight: 900;
+        color: #0f172a;
+        margin-bottom: 5px;
+    }}
+    .exp-grid-5 {{
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 2px;
+    }}
+    .exp-cell {{
+        height: 28px;
+        font-size: 10.5px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #cbd5e1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 0 1px;
+    }}
+    /* 出力画像の配色 */
+    .exp-stat-残留 {{ background-color: #f8fafc; color: #0f172a; border-color: #e2e8f0; }}
+    .exp-stat-戦力外 {{ background-color: #fecaca; color: #991b1b; border-color: #f87171; }}
+    .exp-stat-引退 {{ background-color: #fde68a; color: #92400e; border-color: #f59e0b; }}
+    .exp-stat-現ドラ {{ background-color: #e9d5ff; color: #6b21a8; border-color: #c084fc; }}
+    .exp-stat-育成移行 {{ background-color: #bfdbfe; color: #1e40af; border-color: #60a5fa; }}
+    .exp-stat-保留 {{ background-color: #e2e8f0; color: #334155; border-color: #cbd5e1; }}
+
+    .exp-footer {{
+        display: flex;
+        justify-content: space-between;
+        font-size: 8.5px;
+        color: #94a3b8;
+        border-top: 1px solid #f1f5f9;
+        padding-top: 6px;
+        margin-top: 6px;
+    }}
 </style>
 </head>
 <body>
@@ -424,6 +565,7 @@ app_html = f"""
         <button class="tab-btn active" onclick="switchMainTab('roster')">📋 戦力整理</button>
         <button class="tab-btn" onclick="switchMainTab('depth')">📊 年齢別デプス</button>
         <button class="tab-btn" onclick="switchMainTab('ikusei')">🌱 育成</button>
+        <button class="tab-btn" onclick="switchMainTab('export')">🖼️ 出力・保存</button>
     </div>
 
     <!-- ポジション選択（戦力整理タブ時のみ表示） -->
@@ -459,7 +601,67 @@ app_html = f"""
         </div>
     </div>
 
-    <!-- 最下部：補強シミュレーション（初期数値はすべて0） -->
+    <!-- ★画像出力タブエリア★ -->
+    <div id="exportArea" style="display:none;">
+        <div class="download-bar">
+            <button class="download-btn" onclick="downloadImage()">
+                📥 画像として保存 (PNG)
+            </button>
+        </div>
+        <div class="export-container">
+            <!-- ここが画像としてキャプチャされる本体 -->
+            <div id="captureArea">
+                <div class="exp-top">
+                    <div class="exp-sub-title">NPB 戦力整理メーカーβ</div>
+                    <div class="exp-team-badge">{team_code}</div>
+                </div>
+                <div class="exp-title-area">
+                    <div class="exp-team-name">{selected_team}</div>
+                    <div class="exp-year-text">2026年 戦力整理予想</div>
+                </div>
+
+                <!-- 予想サマリー -->
+                <div class="exp-summary-row">
+                    <div class="exp-sum-item">
+                        <div class="exp-sum-val" style="color:#dc2626;" id="expCntSenryoku">戦力外 0人</div>
+                    </div>
+                    <div class="exp-sum-item">
+                        <div class="exp-sum-val" style="color:#2563eb;" id="expCntIkusei">育成移行 0人</div>
+                    </div>
+                    <div class="exp-sum-item">
+                        <div class="exp-sum-val" style="color:#6b21a8;" id="expCntGendora">現役ドラフト 0人</div>
+                    </div>
+                    <div class="exp-sum-item">
+                        <div class="exp-sum-val" style="color:#15803d;" id="expCntYoso">予想支配下 0人</div>
+                    </div>
+                </div>
+
+                <!-- 凡例 -->
+                <div class="exp-legend-row">
+                    <div class="exp-legends">
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#f8fafc;"></div>残留</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#fecaca;"></div>戦力外</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#fde68a;"></div>引退</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#bfdbfe;"></div>育成移行</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#e9d5ff;"></div>現役ドラフト</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#e2e8f0;"></div>保留</div>
+                    </div>
+                    <div>※個人の予想です</div>
+                </div>
+
+                <!-- 各ポジションのグリッド（5列） -->
+                <div id="expGridContainer"></div>
+
+                <!-- フッター -->
+                <div class="exp-footer">
+                    <div>roster-npb.streamlit.app</div>
+                    <div id="expFooterInfo">補強 +0人 あと0枠</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最下部：補強シミュレーション -->
     <div class="bottom-section">
         <b style="font-size:0.85rem; color:#334155;">📥 補強シミュレーション</b>
         <div class="input-grid" style="margin-top:4px;">
@@ -502,13 +704,15 @@ app_html = f"""
             b.classList.toggle('active', 
                 (tab === 'roster' && i === 0) || 
                 (tab === 'depth' && i === 1) ||
-                (tab === 'ikusei' && i === 2)
+                (tab === 'ikusei' && i === 2) ||
+                (tab === 'export' && i === 3)
             );
         }});
         document.getElementById('posTabsContainer').style.display = (tab === 'roster') ? 'flex' : 'none';
         document.getElementById('cardGrid').style.display = (tab === 'roster') ? 'grid' : 'none';
         document.getElementById('ikuseiContainer').style.display = (tab === 'ikusei') ? 'block' : 'none';
         document.getElementById('depthContainer').style.display = (tab === 'depth') ? 'block' : 'none';
+        document.getElementById('exportArea').style.display = (tab === 'export') ? 'block' : 'none';
         closePopover();
         render();
     }}
@@ -528,7 +732,6 @@ app_html = f"""
         grid.innerHTML = '';
         ikuContainer.innerHTML = '';
 
-        // 戦力整理の各ポジション人数
         ['投手', '捕手', '内野手', '外野手'].forEach((pName, idx) => {{
             const c = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === pName).length;
             const btn = document.querySelectorAll('.pos-btn')[idx];
@@ -536,7 +739,6 @@ app_html = f"""
         }});
 
         if (currentMainTab === 'roster') {{
-            // 【戦力整理タブ】支配下 ＋ 昇格選手
             const target = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === currentPos);
             target.forEach(p => {{
                 const card = document.createElement('div');
@@ -551,7 +753,6 @@ app_html = f"""
                 grid.appendChild(card);
             }});
         }} else if (currentMainTab === 'ikusei') {{
-            // 【育成タブ】ポジション別に縦並び
             const positions = ['投手', '捕手', '内野手', '外野手'];
             let totalIkusei = 0;
 
@@ -597,6 +798,8 @@ app_html = f"""
             }}
         }} else if (currentMainTab === 'depth') {{
             renderDepthChart();
+        }} else if (currentMainTab === 'export') {{
+            renderExportCanvas();
         }}
         calcTotals();
     }}
@@ -632,6 +835,67 @@ app_html = f"""
             tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
         }}
+    }}
+
+    // ★画像出力用レイアウトの描画★
+    function renderExportCanvas() {{
+        const container = document.getElementById('expGridContainer');
+        container.innerHTML = '';
+
+        const activeShihai = allPlayers.filter(p => !p.is_ikusei || p.promoted);
+        const positions = ['投手', '捕手', '内野手', '外野手'];
+
+        positions.forEach(pos => {{
+            const pList = activeShihai.filter(p => p.pos === pos);
+            const totalCount = pList.length;
+            // 整理対象（戦力外・引退・育成落・現ドラ）のカウント
+            const outCount = pList.filter(p => ['戦力外', '引退', '育成移行', '現ドラ'].includes(p.status)).length;
+
+            const sec = document.createElement('div');
+            sec.className = 'exp-pos-sec';
+            sec.innerHTML = `<div class="exp-pos-header">${{pos}}：${{outCount}} / ${{totalCount}}人</div>`;
+
+            const grid5 = document.createElement('div');
+            grid5.className = 'exp-grid-5';
+
+            pList.forEach(p => {{
+                const cell = document.createElement('div');
+                cell.className = `exp-cell exp-stat-${{p.status}}`;
+                const badge = p.promoted ? '🌱' : '';
+                cell.innerText = `${{p.name}}${{badge}}`;
+                grid5.appendChild(cell);
+            }});
+
+            // 5の倍数になるよう空セルで埋める（グリッドの美しさを維持）
+            const remainder = pList.length % 5;
+            if (remainder !== 0) {{
+                for (let i = 0; i < 5 - remainder; i++) {{
+                    const emptyCell = document.createElement('div');
+                    emptyCell.className = 'exp-cell';
+                    emptyCell.style.border = 'none';
+                    emptyCell.style.background = 'transparent';
+                    grid5.appendChild(emptyCell);
+                }}
+            }}
+
+            sec.appendChild(grid5);
+            container.appendChild(sec);
+        }});
+    }}
+
+    // ★画像ダウンロード実行★
+    function downloadImage() {{
+        const target = document.getElementById('captureArea');
+        html2canvas(target, {{
+            scale: 2, // 高解像度（Retina対応）
+            useCORS: true,
+            backgroundColor: '#ffffff'
+        }}).then(canvas => {{
+            const link = document.createElement('a');
+            link.download = `{selected_team}_戦力整理予想2026.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }});
     }}
 
     function openPopover(targetEl, no, title, isIkuseiMode) {{
@@ -755,10 +1019,20 @@ app_html = f"""
         }} else {{
             remEl.innerHTML = `<span style="color:#dc2626;">${{-remaining}}人 超過</span>`;
         }}
+
+        // 画像出力タブ側の数字もリアルタイム更新
+        const expSenryoku = document.getElementById('expCntSenryoku');
+        if (expSenryoku) {{
+            expSenryoku.innerText = `戦力外 ${{counts['戦力外'] + counts['引退']}}人`;
+            document.getElementById('expCntIkusei').innerText = `育成移行 ${{counts['育成移行']}}人`;
+            document.getElementById('expCntGendora').innerText = `現役ドラフト ${{counts['現ドラ']}}人`;
+            document.getElementById('expCntYoso').innerText = `予想支配下 ${{nextTotal}}人`;
+            document.getElementById('expFooterInfo').innerText = `補強 +${{totalNew}}人  70枠まであと${{remaining >= 0 ? remaining : 0}}枠`;
+        }}
     }}
 </script>
 </body>
 </html>
 """
 
-components.html(app_html, height=1350, scrolling=True)
+components.html(app_html, height=1450, scrolling=True)
