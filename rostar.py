@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import json
+import datetime
 
 # ページ基本設定
 st.set_page_config(
@@ -18,14 +19,41 @@ TEAM_MAP = {
     "e": "東北楽天ゴールデンイーグルス", "b": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
 }
 
-# --- 2. データ読み込み ---
+# --- 2. データ読み込み＆学年年齢計算 ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
+
+# 2026年度（2026年4月2日〜2027年4月1日）における学年満年齢を計算
+def calc_academic_age(birth_str, target_year=2026):
+    try:
+        # 日付フォーマットの柔軟なパース (例: 1994/06/15, 1994-06-15)
+        dt = pd.to_datetime(birth_str)
+        b_year = dt.year
+        b_month = dt.month
+        b_day = dt.day
+
+        # 4月1日以前（早生まれ）は前年度生まれ扱い（学年計算）
+        if (b_month < 4) or (b_month == 4 and b_day == 1):
+            school_year_birth = b_year - 1
+        else:
+            school_year_birth = b_year
+
+        # ターゲット年度（2026年度）に迎える年齢
+        return target_year - school_year_birth
+    except Exception:
+        return None
 
 @st.cache_data(ttl=600)
 def load_data():
     df = pd.read_csv(CSV_URL)
-    df["年齢_num"] = df["年齢"].astype(str).str.extract(r'(\d+)').astype(float)
+    
+    # 生年月日から学年年齢を計算
+    df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
+    
+    # 欠損がある場合は元の年齢文字列から数値を抽出してフォールバック
+    fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
+    df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
+
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
     def check_shihai(no_str):
@@ -58,7 +86,7 @@ if st.sidebar.button("🔄 データを最新に更新"):
 team_df = df_raw[df_raw["球団名"] == selected_team].copy()
 players_list = []
 for _, r in team_df.iterrows():
-    p_age = int(r["年齢_num"]) if pd.notnull(r["年齢_num"]) else "-"
+    p_age = int(r["学年年齢"]) if pd.notnull(r["学年年齢"]) else "-"
     players_list.append({
         "no": int(r["No"]),
         "num": str(r["背番号"]),
@@ -84,9 +112,21 @@ app_html = f"""
     body {{ background: transparent; padding: 4px 4px 30px 4px; overflow-x: hidden; }}
 
     /* タイトルとサマリー */
-    .header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }}
+    .header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 4px; }}
     .title {{ font-size: 1.25rem; font-weight: 800; color: #111; }}
     .sub {{ font-size: 0.7rem; color: #666; }}
+
+    /* 年齢定義の注記 */
+    .age-notice {{
+        font-size: 0.68rem;
+        color: #475569;
+        background: #f1f5f9;
+        border-left: 3px solid #64748b;
+        padding: 3px 6px;
+        border-radius: 2px;
+        margin-bottom: 6px;
+        line-height: 1.3;
+    }}
 
     /* 上部ダッシュボード */
     .metric-grid {{
@@ -187,7 +227,7 @@ app_html = f"""
     .c-sub {{ font-size: 9.5px; opacity: 0.8; line-height: 1; }}
     .c-stat {{ font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.1; }}
 
-    /* ステータス別の配色 */
+    /* ステータス別配色 */
     .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
     .stat-残留 .c-stat {{ background-color: #f1f5f9; color: #475569; }}
 
@@ -203,7 +243,7 @@ app_html = f"""
     .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
     .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
 
-    /* ★年齢別デプスチャートのテーブルスタイル★ */
+    /* 年齢別デプスチャートのテーブルスタイル */
     .depth-wrapper {{
         width: 100%;
         overflow-x: auto;
@@ -249,7 +289,6 @@ app_html = f"""
         width: 24%;
         text-align: center;
     }}
-    /* デプス表の中の選手チップ（タップ可能） */
     .depth-chip {{
         display: inline-block;
         margin: 2px;
@@ -335,6 +374,11 @@ app_html = f"""
         <div class="sub" id="headerSub"></div>
     </div>
 
+    <!-- 年齢定義の明記 -->
+    <div class="age-notice">
+        📌 <b>年齢の定義：</b>2026年度（2026年4月2日〜2027年4月1日）に迎える学年満年齢で集計しています（同学年で統一）。
+    </div>
+
     <!-- 上部ダッシュボード -->
     <div class="metric-grid">
         <div class="metric-box"><div class="m-label">支配下</div><div class="m-val" id="cntShihai">0人</div></div>
@@ -365,7 +409,7 @@ app_html = f"""
 
     <!-- 年齢別デプスチャート表示領域 -->
     <div id="depthContainer" style="display:none;">
-        <div class="depth-info">2026年シーズン中に迎える年齢（横にスクロールできます）</div>
+        <div class="depth-info">2026年度学年年齢デプス（横にスクロールできます）</div>
         <div class="depth-wrapper">
             <table class="depth-chart-table">
                 <thead>
@@ -451,7 +495,6 @@ app_html = f"""
         const grid = document.getElementById('cardGrid');
         grid.innerHTML = '';
 
-        // 各ポジションの人数を更新
         ['投手', '捕手', '内野手', '外野手'].forEach((pName, idx) => {{
             const c = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === pName).length;
             const btn = document.querySelectorAll('.pos-btn')[idx];
@@ -494,29 +537,23 @@ app_html = f"""
         calcTotals();
     }}
 
-    // ★年齢別デプスチャートの描画（タップで選択肢モーダル対応）★
     function renderDepthChart() {{
         const tbody = document.getElementById('depthChartBody');
         tbody.innerHTML = '';
 
-        // 対象：支配下選手 ＋ 育成昇格選手
         const activePlayers = allPlayers.filter(p => !p.is_ikusei || p.promoted);
 
-        // 球団内の最高年齢と最低年齢を動的に取得
+        // 学年年齢の最大・最小値を取得
         const validAges = activePlayers.map(p => parseInt(p.age)).filter(a => !isNaN(a));
         const maxAge = validAges.length > 0 ? Math.max(...validAges) : 38;
         const minAge = validAges.length > 0 ? Math.min(...validAges) : 18;
 
         const positions = ['投手', '捕手', '内野手', '外野手'];
 
-        // 高い年齢から順に1歳刻みで行を生成
         for (let age = maxAge; age >= minAge; age--) {{
             const tr = document.createElement('tr');
-            
-            // 年齢セル
             let rowHtml = `<td class="depth-age-col">${{age}}</td>`;
 
-            // 各ポジションのセル
             positions.forEach(pos => {{
                 const playersAtAge = activePlayers.filter(p => parseInt(p.age) === age && p.pos === pos);
                 let chipsHtml = '';
@@ -551,7 +588,7 @@ app_html = f"""
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
         if (p) {{
             p.status = status;
-            render(); // デプスチャートでも即座に色と文字が更新される
+            render();
         }}
     }}
 
@@ -575,7 +612,6 @@ app_html = f"""
         document.getElementById('cntGendora').innerText = `${{counts['現ドラ']}}人`;
         document.getElementById('cntShokaku').innerText = `${{promotedCount}}人`;
 
-        // 補強シミュレーション枠計算
         const inDraft = parseInt(document.getElementById('inDraft').value) || 0;
         const inFa = parseInt(document.getElementById('inFa').value) || 0;
         const inForeign = parseInt(document.getElementById('inForeign').value) || 0;
@@ -599,5 +635,5 @@ app_html = f"""
 </html>
 """
 
-# デプス表（38歳〜18歳の縦長スクロール）もすっぽり収まる高さを指定
-components.html(app_html, height=1200, scrolling=True)
+# デプス表も含めて縦長スクロールがスムーズに動く高さを指定
+components.html(app_html, height=1250, scrolling=True)
