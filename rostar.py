@@ -41,7 +41,6 @@ def calc_academic_age(birth_str, target_year=2026):
 
 @st.cache_data(ttl=600)
 def load_data():
-    # 背番号列を文字列（str）として読み込むことで、011などの先頭ゼロを保持
     df = pd.read_csv(CSV_URL, dtype={"背番号": str})
 
     df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
@@ -49,7 +48,6 @@ def load_data():
     df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
-    # 3桁（011, 002, 120等）を確実に育成として判定
     def check_shihai(no_str):
         s = str(no_str).strip()
         if len(s) >= 3:
@@ -257,7 +255,6 @@ app_html = f"""
     .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
     .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
 
-    /* 育成から支配下昇格した時のカラー */
     .stat-支配下昇格 {{ background-color: #dcfce7; border: 1.5px solid #22c55e; color: #15803d; }}
     .stat-支配下昇格 .c-stat {{ background-color: #bbf7d0; color: #15803d; }}
 
@@ -462,24 +459,24 @@ app_html = f"""
         </div>
     </div>
 
-    <!-- 最下部：補強シミュレーション -->
+    <!-- 最下部：補強シミュレーション（初期数値はすべて0） -->
     <div class="bottom-section">
         <b style="font-size:0.85rem; color:#334155;">📥 補強シミュレーション</b>
         <div class="input-grid" style="margin-top:4px;">
-            <div class="input-box"><label>ドラフト支配下</label><input type="number" inputmode="numeric" id="inDraft" value="5" min="0" max="15" oninput="calcTotals()"></div>
+            <div class="input-box"><label>ドラフト支配下</label><input type="number" inputmode="numeric" id="inDraft" value="0" min="0" max="15" oninput="calcTotals()"></div>
             <div class="input-box"><label>FA・トレード</label><input type="number" inputmode="numeric" id="inFa" value="0" min="0" max="10" oninput="calcTotals()"></div>
-            <div class="input-box"><label>新外国人</label><input type="number" inputmode="numeric" id="inForeign" value="1" min="0" max="10" oninput="calcTotals()"></div>
+            <div class="input-box"><label>新外国人</label><input type="number" inputmode="numeric" id="inForeign" value="0" min="0" max="10" oninput="calcTotals()"></div>
             <div class="input-box"><label>その他新加入</label><input type="number" inputmode="numeric" id="inOther" value="0" min="0" max="10" oninput="calcTotals()"></div>
         </div>
 
         <div class="result-banner">
             <div>
                 <div style="font-size:0.75rem; color:#475569;">翌年予想支配下</div>
-                <div style="font-size:1.1rem; font-weight:800; color:#0f172a;" id="nextYearTotal">65人</div>
+                <div style="font-size:1.1rem; font-weight:800; color:#0f172a;" id="nextYearTotal">0人</div>
             </div>
             <div style="text-align:right;">
                 <div style="font-size:0.75rem; color:#475569;">70人まで</div>
-                <div style="font-size:1.1rem; font-weight:800;" id="remainingSlots">あと 5 枠</div>
+                <div style="font-size:1.1rem; font-weight:800;" id="remainingSlots">あと 0 枠</div>
             </div>
         </div>
     </div>
@@ -588,7 +585,6 @@ app_html = f"""
                             <div class="c-sub">${{p.age}}歳</div>
                             <div class="c-stat">${{statLabel}}</div>
                         `;
-                        // 育成用の3択ポップアップを開く
                         card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (育成)`, true);
                         secGrid.appendChild(card);
                     }});
@@ -638,7 +634,6 @@ app_html = f"""
         }}
     }}
 
-    // ★ポップアップメニューの表示★
     function openPopover(targetEl, no, title, isIkuseiMode) {{
         selectedPlayerNo = no;
         document.getElementById('popHeader').innerText = title;
@@ -648,7 +643,6 @@ app_html = f"""
         const btnContainer = document.getElementById('popBtnContainer');
 
         if (isIkuseiMode) {{
-            // 育成選手用の3択メニュー（支配下昇格／残留／戦力外）
             btnContainer.innerHTML = `
                 <div class="pop-btn-stack">
                     <button class="pop-btn stat-支配下昇格" onclick="applyIkuseiStatus('支配下昇格')">🟢 支配下昇格</button>
@@ -657,7 +651,6 @@ app_html = f"""
                 </div>
             `;
         }} else {{
-            // 通常選手用の6択メニュー
             btnContainer.innerHTML = `
                 <div class="pop-btn-grid">
                     <button class="pop-btn stat-残留" onclick="applyStatus('残留')">残留</button>
@@ -696,7 +689,6 @@ app_html = f"""
         document.getElementById('popoverMenu').style.display = 'none';
     }}
 
-    // 通常選手のステータス更新
     function applyStatus(status) {{
         closePopover();
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
@@ -706,19 +698,17 @@ app_html = f"""
         }}
     }}
 
-    // ★育成選手の3択処理★
     function applyIkuseiStatus(action) {{
         closePopover();
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
         if (p) {{
             if (action === '支配下昇格') {{
                 p.promoted = true;
-                p.status = '残留'; // 支配下入りして初期値は残留
+                p.status = '残留';
             }} else if (action === '戦力外') {{
                 p.promoted = false;
                 p.status = '戦力外';
             }} else {{
-                // 残留
                 p.promoted = false;
                 p.status = '残留';
             }}
