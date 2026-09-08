@@ -54,7 +54,7 @@ if st.sidebar.button("🔄 データを最新に更新"):
     st.cache_data.clear()
     st.rerun()
 
-# 選手データのJSON化（ブラウザ側にすべて渡して即時反応させる）
+# 選手データのJSON化
 team_df = df_raw[df_raw["球団名"] == selected_team].copy()
 players_list = []
 for _, r in team_df.iterrows():
@@ -71,7 +71,7 @@ for _, r in team_df.iterrows():
 
 players_json = json.dumps(players_list, ensure_ascii=False)
 
-# --- 3. アプリ本体（HTML + JavaScriptで完全自律動作） ---
+# --- 3. アプリ本体（HTML + JavaScript） ---
 app_html = f"""
 <!DOCTYPE html>
 <html>
@@ -80,7 +80,7 @@ app_html = f"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-    body {{ background: transparent; padding: 4px; overflow-x: hidden; }}
+    body {{ background: transparent; padding: 4px 4px 30px 4px; overflow-x: hidden; }}
 
     /* タイトルとサマリー */
     .header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }}
@@ -202,6 +202,24 @@ app_html = f"""
     .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
     .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
 
+    /* デプステーブル用 */
+    .depth-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.72rem;
+        margin-bottom: 16px;
+        background: #fff;
+        border-radius: 6px;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+    }}
+    .depth-table th, .depth-table td {{
+        padding: 5px 4px;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+    }}
+    .depth-table th {{ background: #f8fafc; font-weight: bold; color: #475569; }}
+
     /* モーダルポップアップ */
     .modal-overlay {{
         display: none;
@@ -287,9 +305,10 @@ app_html = f"""
     <div class="nav-tabs">
         <button class="tab-btn active" onclick="switchMainTab('roster')">📋 戦力整理</button>
         <button class="tab-btn" onclick="switchMainTab('ikusei')">🌱 育成昇格</button>
+        <button class="tab-btn" onclick="switchMainTab('depth')">📊 デプス</button>
     </div>
 
-    <!-- ポジション選択 -->
+    <!-- ポジション選択（戦力整理タブ時のみ表示） -->
     <div id="posTabsContainer" class="pos-tabs">
         <button class="pos-btn active" onclick="switchPos('投手')">投手</button>
         <button class="pos-btn" onclick="switchPos('捕手')">捕手</button>
@@ -300,14 +319,24 @@ app_html = f"""
     <!-- 選手カードグリッド -->
     <div class="grid" id="cardGrid"></div>
 
+    <!-- デプステーブル表示領域 -->
+    <div id="depthContainer" style="display:none;">
+        <table class="depth-table">
+            <thead>
+                <tr><th>位置</th><th>〜22</th><th>23-25</th><th>26-29</th><th>30-34</th><th>35〜</th><th>計</th></tr>
+            </thead>
+            <tbody id="depthBody"></tbody>
+        </table>
+    </div>
+
     <!-- 最下部：補強シミュレーション -->
     <div class="bottom-section">
         <b style="font-size:0.85rem; color:#334155;">📥 補強シミュレーション</b>
         <div class="input-grid" style="margin-top:4px;">
-            <div class="input-box"><label>ドラフト支配下</label><input type="number" id="inDraft" value="5" min="0" max="15" onchange="calcTotals()"></div>
-            <div class="input-box"><label>FA・トレード</label><input type="number" id="inFa" value="0" min="0" max="10" onchange="calcTotals()"></div>
-            <div class="input-box"><label>新外国人</label><input type="number" id="inForeign" value="1" min="0" max="10" onchange="calcTotals()"></div>
-            <div class="input-box"><label>その他新加入</label><input type="number" id="inOther" value="0" min="0" max="10" onchange="calcTotals()"></div>
+            <div class="input-box"><label>ドラフト支配下</label><input type="number" id="inDraft" value="5" min="0" max="15" oninput="calcTotals()"></div>
+            <div class="input-box"><label>FA・トレード</label><input type="number" id="inFa" value="0" min="0" max="10" oninput="calcTotals()"></div>
+            <div class="input-box"><label>新外国人</label><input type="number" id="inForeign" value="1" min="0" max="10" oninput="calcTotals()"></div>
+            <div class="input-box"><label>その他新加入</label><input type="number" id="inOther" value="0" min="0" max="10" oninput="calcTotals()"></div>
         </div>
 
         <div class="result-banner">
@@ -335,28 +364,32 @@ app_html = f"""
     </div>
 
 <script>
-    // データ初期化
     const allPlayers = {players_json};
     let currentMainTab = 'roster';
     let currentPos = '投手';
     let selectedPlayerNo = null;
 
-    // 画面初期描画
     render();
 
     function switchMainTab(tab) {{
         currentMainTab = tab;
         document.querySelectorAll('.tab-btn').forEach((b, i) => {{
-            b.classList.toggle('active', (tab === 'roster' && i === 0) || (tab === 'ikusei' && i === 1));
+            b.classList.toggle('active', 
+                (tab === 'roster' && i === 0) || 
+                (tab === 'ikusei' && i === 1) ||
+                (tab === 'depth' && i === 2)
+            );
         }});
         document.getElementById('posTabsContainer').style.display = (tab === 'roster') ? 'flex' : 'none';
+        document.getElementById('cardGrid').style.display = (tab === 'depth') ? 'none' : 'grid';
+        document.getElementById('depthContainer').style.display = (tab === 'depth') ? 'block' : 'none';
         render();
     }}
 
     function switchPos(pos) {{
         currentPos = pos;
         document.querySelectorAll('.pos-btn').forEach(b => {{
-            b.classList.toggle('active', b.innerText === pos);
+            b.classList.toggle('active', b.innerText.startsWith(pos));
         }});
         render();
     }}
@@ -365,8 +398,14 @@ app_html = f"""
         const grid = document.getElementById('cardGrid');
         grid.innerHTML = '';
 
+        // 各ポジションの人数を更新
+        ['投手', '捕手', '内野手', '外野手'].forEach((pName, idx) => {{
+            const c = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === pName).length;
+            const btn = document.querySelectorAll('.pos-btn')[idx];
+            if (btn) btn.innerText = `${{pName}} (${{c}})`;
+        }});
+
         if (currentMainTab === 'roster') {{
-            // 支配下 ＋ 昇格した育成選手
             const target = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === currentPos);
             target.forEach(p => {{
                 const card = document.createElement('div');
@@ -377,12 +416,10 @@ app_html = f"""
                     <div class="c-sub">${{p.age}}歳</div>
                     <div class="c-stat">${{p.status}}</div>
                 `;
-                // タップでモーダルを開く
                 card.onclick = () => openModal(p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`);
                 grid.appendChild(card);
             }});
-        }} else {{
-            // 育成選手一覧（昇格トグル）
+        }} else if (currentMainTab === 'ikusei') {{
             const target = allPlayers.filter(p => p.is_ikusei);
             target.forEach(p => {{
                 const card = document.createElement('div');
@@ -392,15 +429,44 @@ app_html = f"""
                     <div class="c-sub">${{p.pos}} / ${{p.age}}歳</div>
                     <div class="c-stat">${{p.promoted ? '支配下昇格中' : '育成'}}</div>
                 `;
-                // タップで昇格/解除を切り替え
                 card.onclick = () => {{
                     p.promoted = !p.promoted;
                     render();
                 }};
                 grid.appendChild(card);
             }});
+        }} else if (currentMainTab === 'depth') {{
+            renderDepth();
         }}
         calcTotals();
+    }}
+
+    function renderDepth() {{
+        const tbody = document.getElementById('depthBody');
+        tbody.innerHTML = '';
+        const active = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && ['残留', '現ドラ', '保留'].includes(p.status));
+        const positions = ['投手', '捕手', '内野手', '外野手'];
+
+        positions.forEach(pos => {{
+            const pList = active.filter(p => p.pos === pos);
+            const cU22 = pList.filter(p => p.age !== '-' && parseInt(p.age) <= 22).length;
+            const c2325 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 23 && parseInt(p.age) <= 25).length;
+            const c2629 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 26 && parseInt(p.age) <= 29).length;
+            const c3034 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 30 && parseInt(p.age) <= 34).length;
+            const c35O = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 35).length;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:bold;">${{pos}}</td>
+                <td>${{cU22}}</td>
+                <td>${{c2325}}</td>
+                <td>${{c2629}}</td>
+                <td>${{c3034}}</td>
+                <td>${{c35O}}</td>
+                <td style="font-weight:bold; background:#f8fafc;">${{pList.length}}</td>
+            `;
+            tbody.appendChild(tr);
+        }});
     }}
 
     function openModal(no, title) {{
@@ -413,13 +479,12 @@ app_html = f"""
         document.getElementById('modalOverlay').style.display = 'none';
     }}
 
-    // ★ここで即座に色・文字・数字を更新★
     function applyStatus(status) {{
         closeModal();
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
         if (p) {{
             p.status = status;
-            render(); // 即座に再描画（色と文字が変わる）
+            render();
         }}
     }}
 
@@ -443,7 +508,6 @@ app_html = f"""
         document.getElementById('cntGendora').innerText = `${{counts['現ドラ']}}人`;
         document.getElementById('cntShokaku').innerText = `${{promotedCount}}人`;
 
-        // 最下部の枠計算
         const inDraft = parseInt(document.getElementById('inDraft').value) || 0;
         const inFa = parseInt(document.getElementById('inFa').value) || 0;
         const inForeign = parseInt(document.getElementById('inForeign').value) || 0;
@@ -467,5 +531,5 @@ app_html = f"""
 </html>
 """
 
-# HTMLアプリを描画（高さ固定でスマホスクロール対応）
-components.html(app_html, height=880, scrolling=False)
+# 投手35名＋補強エリアがすっぽり収まる余裕のある高さを指定し、スクロールを許可
+components.html(app_html, height=1050, scrolling=True)
