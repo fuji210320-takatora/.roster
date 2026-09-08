@@ -146,17 +146,17 @@ app_html = f"""
     .m-label {{ font-size: 0.65rem; color: #64748b; }}
     .m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
 
-    /* メインタブ切り替え */
+    /* ★メインタブ切り替え（文字サイズをさらに小さく調整）★ */
     .nav-tabs {{
         display: flex;
         border-bottom: 2px solid #e2e8f0;
         margin-bottom: 8px;
-        gap: 4px;
+        gap: 2px;
         overflow-x: auto;
     }}
     .tab-btn {{
-        padding: 5px 6px;
-        font-size: 0.70rem;
+        padding: 4px 5px;
+        font-size: 0.64rem;
         font-weight: bold;
         color: #64748b;
         background: none;
@@ -171,16 +171,16 @@ app_html = f"""
         border-bottom: 2px solid #dc2626;
     }}
 
-    /* ポジションサブタブ */
+    /* ★ポジションサブタブ（文字サイズをさらに小さく調整）★ */
     .pos-tabs {{
         display: flex;
-        gap: 4px;
+        gap: 3px;
         margin-bottom: 8px;
         overflow-x: auto;
     }}
     .pos-btn {{
-        padding: 3px 6px;
-        font-size: 0.68rem;
+        padding: 2px 5px;
+        font-size: 0.62rem;
         border: 1px solid #cbd5e1;
         border-radius: 4px;
         background: #fff;
@@ -196,7 +196,7 @@ app_html = f"""
 
     /* 育成タブ内の見出し */
     .ikusei-sec-title {{
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         font-weight: bold;
         color: #1e293b;
         margin: 10px 0 4px 2px;
@@ -608,7 +608,6 @@ app_html = f"""
         <div class="export-container">
             <div id="captureArea">
                 <div class="exp-top">
-                    <!-- ★左上の名前を変更★ -->
                     <div class="exp-sub-title">NPB戦力整理シミュレータ</div>
                     <div class="exp-team-badge">{team_code}</div>
                 </div>
