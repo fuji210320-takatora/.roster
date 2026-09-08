@@ -18,7 +18,6 @@ TEAM_MAP = {
     "e": "東北楽天ゴールデンイーグルス", "b": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
 }
 
-# チーム頭文字コード
 TEAM_CODE_MAP = {
     "広島東洋カープ": "C", "阪神タイガース": "T", "読売ジャイアンツ": "G",
     "横浜DeNAベイスターズ": "DB", "中日ドラゴンズ": "D", "東京ヤクルトスワローズ": "S",
@@ -109,7 +108,6 @@ app_html = f"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- html2canvas: 画像保存ライブラリ -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", Meiryo, sans-serif; }}
@@ -148,17 +146,17 @@ app_html = f"""
     .m-label {{ font-size: 0.65rem; color: #64748b; }}
     .m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
 
-    /* タブ切り替え */
+    /* ★メインタブ切り替え（文字サイズ縮小調整）★ */
     .nav-tabs {{
         display: flex;
         border-bottom: 2px solid #e2e8f0;
         margin-bottom: 8px;
-        gap: 6px;
+        gap: 4px;
         overflow-x: auto;
     }}
     .tab-btn {{
-        padding: 6px 8px;
-        font-size: 0.78rem;
+        padding: 5px 6px;
+        font-size: 0.70rem;
         font-weight: bold;
         color: #64748b;
         background: none;
@@ -173,21 +171,22 @@ app_html = f"""
         border-bottom: 2px solid #dc2626;
     }}
 
-    /* ポジションサブタブ */
+    /* ★ポジションサブタブ（文字サイズ縮小調整）★ */
     .pos-tabs {{
         display: flex;
-        gap: 6px;
+        gap: 4px;
         margin-bottom: 8px;
         overflow-x: auto;
     }}
     .pos-btn {{
-        padding: 4px 8px;
-        font-size: 0.75rem;
+        padding: 3px 6px;
+        font-size: 0.68rem;
         border: 1px solid #cbd5e1;
         border-radius: 4px;
         background: #fff;
         color: #475569;
         cursor: pointer;
+        white-space: nowrap;
     }}
     .pos-btn.active {{
         background: #334155;
@@ -197,7 +196,7 @@ app_html = f"""
 
     /* 育成タブ内の見出し */
     .ikusei-sec-title {{
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         font-weight: bold;
         color: #1e293b;
         margin: 10px 0 4px 2px;
@@ -409,7 +408,7 @@ app_html = f"""
         margin-top: 6px;
     }}
 
-    /* ★★★ 画像ダウンロード用キャンバス・スタイル（本家再現） ★★★ */
+    /* 画像出力用スタイル */
     .export-container {{
         width: 100%;
         overflow-x: auto;
@@ -436,7 +435,6 @@ app_html = f"""
     }}
     .download-btn:active {{ transform: scale(0.97); }}
 
-    /* 画像化される本体（幅460px固定でスマホでも崩れないレイアウト） */
     #captureArea {{
         width: 460px;
         background: #ffffff;
@@ -519,7 +517,6 @@ app_html = f"""
         text-overflow: ellipsis;
         padding: 0 1px;
     }}
-    /* 出力画像の配色 */
     .exp-stat-残留 {{ background-color: #f8fafc; color: #0f172a; border-color: #e2e8f0; }}
     .exp-stat-戦力外 {{ background-color: #fecaca; color: #991b1b; border-color: #f87171; }}
     .exp-stat-引退 {{ background-color: #fde68a; color: #92400e; border-color: #f59e0b; }}
@@ -568,7 +565,7 @@ app_html = f"""
         <button class="tab-btn" onclick="switchMainTab('export')">🖼️ 出力・保存</button>
     </div>
 
-    <!-- ポジション選択（戦力整理タブ時のみ表示） -->
+    <!-- ポジション選択 -->
     <div id="posTabsContainer" class="pos-tabs">
         <button class="pos-btn active" onclick="switchPos('投手')">投手</button>
         <button class="pos-btn" onclick="switchPos('捕手')">捕手</button>
@@ -579,7 +576,7 @@ app_html = f"""
     <!-- 選手カードグリッド（戦力整理用） -->
     <div class="grid" id="cardGrid"></div>
 
-    <!-- 育成選手表示領域（ポジション縦並び） -->
+    <!-- 育成選手表示領域 -->
     <div id="ikuseiContainer" style="display:none;"></div>
 
     <!-- 年齢別デプスチャート -->
@@ -601,7 +598,7 @@ app_html = f"""
         </div>
     </div>
 
-    <!-- ★画像出力タブエリア★ -->
+    <!-- 画像出力エリア -->
     <div id="exportArea" style="display:none;">
         <div class="download-bar">
             <button class="download-btn" onclick="downloadImage()">
@@ -609,7 +606,6 @@ app_html = f"""
             </button>
         </div>
         <div class="export-container">
-            <!-- ここが画像としてキャプチャされる本体 -->
             <div id="captureArea">
                 <div class="exp-top">
                     <div class="exp-sub-title">NPB 戦力整理メーカーβ</div>
@@ -620,7 +616,6 @@ app_html = f"""
                     <div class="exp-year-text">2026年 戦力整理予想</div>
                 </div>
 
-                <!-- 予想サマリー -->
                 <div class="exp-summary-row">
                     <div class="exp-sum-item">
                         <div class="exp-sum-val" style="color:#dc2626;" id="expCntSenryoku">戦力外 0人</div>
@@ -636,32 +631,29 @@ app_html = f"""
                     </div>
                 </div>
 
-                <!-- 凡例 -->
                 <div class="exp-legend-row">
                     <div class="exp-legends">
                         <div class="exp-leg-item"><div class="exp-leg-box" style="background:#f8fafc;"></div>残留</div>
                         <div class="exp-leg-item"><div class="exp-leg-box" style="background:#fecaca;"></div>戦力外</div>
                         <div class="exp-leg-item"><div class="exp-leg-box" style="background:#fde68a;"></div>引退</div>
                         <div class="exp-leg-item"><div class="exp-leg-box" style="background:#bfdbfe;"></div>育成移行</div>
-                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#e9d5ff;"></div>現役ドラフト</div>
+                        <div class="exp-leg-item"><div class="exp-leg-box" style="background:#e9d5ff;"></div>現ドラ</div>
                         <div class="exp-leg-item"><div class="exp-leg-box" style="background:#e2e8f0;"></div>保留</div>
                     </div>
                     <div>※個人の予想です</div>
                 </div>
 
-                <!-- 各ポジションのグリッド（5列） -->
                 <div id="expGridContainer"></div>
 
-                <!-- フッター -->
                 <div class="exp-footer">
                     <div>roster-npb.streamlit.app</div>
-                    <div id="expFooterInfo">補強 +0人 あと0枠</div>
+                    <div id="expFooterInfo">補強 +0人  70枠まであと0枠</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 最下部：補強シミュレーション -->
+    <!-- 補強シミュレーション -->
     <div class="bottom-section">
         <b style="font-size:0.85rem; color:#334155;">📥 補強シミュレーション</b>
         <div class="input-grid" style="margin-top:4px;">
@@ -837,7 +829,6 @@ app_html = f"""
         }}
     }}
 
-    // ★画像出力用レイアウトの描画★
     function renderExportCanvas() {{
         const container = document.getElementById('expGridContainer');
         container.innerHTML = '';
@@ -848,7 +839,6 @@ app_html = f"""
         positions.forEach(pos => {{
             const pList = activeShihai.filter(p => p.pos === pos);
             const totalCount = pList.length;
-            // 整理対象（戦力外・引退・育成落・現ドラ）のカウント
             const outCount = pList.filter(p => ['戦力外', '引退', '育成移行', '現ドラ'].includes(p.status)).length;
 
             const sec = document.createElement('div');
@@ -866,7 +856,6 @@ app_html = f"""
                 grid5.appendChild(cell);
             }});
 
-            // 5の倍数になるよう空セルで埋める（グリッドの美しさを維持）
             const remainder = pList.length % 5;
             if (remainder !== 0) {{
                 for (let i = 0; i < 5 - remainder; i++) {{
@@ -883,11 +872,10 @@ app_html = f"""
         }});
     }}
 
-    // ★画像ダウンロード実行★
     function downloadImage() {{
         const target = document.getElementById('captureArea');
         html2canvas(target, {{
-            scale: 2, // 高解像度（Retina対応）
+            scale: 2,
             useCORS: true,
             backgroundColor: '#ffffff'
         }}).then(canvas => {{
@@ -1020,7 +1008,6 @@ app_html = f"""
             remEl.innerHTML = `<span style="color:#dc2626;">${{-remaining}}人 超過</span>`;
         }}
 
-        // 画像出力タブ側の数字もリアルタイム更新
         const expSenryoku = document.getElementById('expCntSenryoku');
         if (expSenryoku) {{
             expSenryoku.innerText = `戦力外 ${{counts['戦力外'] + counts['引退']}}人`;
