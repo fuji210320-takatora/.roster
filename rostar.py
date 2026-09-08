@@ -146,7 +146,7 @@ app_html = f"""
     .m-label {{ font-size: 0.65rem; color: #64748b; }}
     .m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
 
-    /* ★メインタブ切り替え（文字サイズ縮小調整）★ */
+    /* メインタブ切り替え */
     .nav-tabs {{
         display: flex;
         border-bottom: 2px solid #e2e8f0;
@@ -171,7 +171,7 @@ app_html = f"""
         border-bottom: 2px solid #dc2626;
     }}
 
-    /* ★ポジションサブタブ（文字サイズ縮小調整）★ */
+    /* ポジションサブタブ */
     .pos-tabs {{
         display: flex;
         gap: 4px;
@@ -608,7 +608,8 @@ app_html = f"""
         <div class="export-container">
             <div id="captureArea">
                 <div class="exp-top">
-                    <div class="exp-sub-title">NPB 戦力整理メーカーβ</div>
+                    <!-- ★左上の名前を変更★ -->
+                    <div class="exp-sub-title">NPB戦力整理シミュレータ</div>
                     <div class="exp-team-badge">{team_code}</div>
                 </div>
                 <div class="exp-title-area">
