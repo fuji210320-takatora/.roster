@@ -41,16 +41,21 @@ def calc_academic_age(birth_str, target_year=2026):
 
 @st.cache_data(ttl=600)
 def load_data():
-    df = pd.read_csv(CSV_URL)
+    # ★背番号列を文字列（str）として読み込むことで、先頭の「0」が消えるのを防ぐ★
+    df = pd.read_csv(CSV_URL, dtype={"背番号": str})
+
     df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
     fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
     df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
+    # ★011, 002 などを確実に「育成」として判定するロジック★
     def check_shihai(no_str):
         s = str(no_str).strip()
-        if len(s) >= 3 and s.lstrip('0') != "":
+        # 3文字以上（例: 011, 002, 120, 202）は確実に育成
+        if len(s) >= 3:
             return "育成"
+        # 0や00、1〜99は支配下
         return "支配下"
 
     df["契約区分"] = df["背番号"].apply(check_shihai)
