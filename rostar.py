@@ -15,7 +15,7 @@ TEAM_MAP = {
     "c": "広島東洋カープ", "t": "阪神タイガース", "g": "読売ジャイアンツ",
     "yb": "横浜DeNAベイスターズ", "d": "中日ドラゴンズ", "s": "東京ヤクルトスワローズ",
     "h": "福岡ソフトバンクホークス", "f": "北海道日本ハムファイターズ", "m": "千葉ロッテマリーンズ",
-    "e": "東北楽天ゴールデンイーグルス", "bs": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
+    "e": "東北楽天ゴールデンイーグルス", "b": "オリックス・バファローズ", "l": "埼玉西武ライオンズ",
 }
 
 TEAM_CODE_MAP = {
@@ -24,6 +24,31 @@ TEAM_CODE_MAP = {
     "福岡ソフトバンクホークス": "H", "北海道日本ハムファイターズ": "F", "千葉ロッテマリーンズ": "M",
     "東北楽天ゴールデンイーグルス": "E", "オリックス・バファローズ": "B", "埼玉西武ライオンズ": "L",
 }
+
+# 退団・除外リスト（球団名: [選手名...]）
+RELEASED_PLAYERS = {
+    "横浜DeNAベイスターズ": ["コックス", "デュプランティエ", "ビシエド"],
+    "東京ヤクルトスワローズ": ["澤野聖悠", "澤野 聖悠"],
+    "東北楽天ゴールデンイーグルス": ["ゴンザレス"],
+    "オリックス・バファローズ": ["遠藤成", "遠藤 成"],
+    "埼玉西武ライオンズ": ["ボー・タカハシ", "ボータカハシ", "タカハシ"]
+}
+
+# 手動追加・入団リスト
+MANUAL_ADDITIONS = [
+    {
+        "No": 99901,
+        "背番号": "021",
+        "選手名": "遠藤 成",
+        "守備位置": "内野手",
+        "生年月日": "2001/09/19",
+        "年齢": "25",
+        "年俸": "600万円",
+        "コード": "s",
+        "球団名": "東京ヤクルトスワローズ",
+        "契約区分": "育成"
+    }
+]
 
 # --- 2. データ読み込み＆学年年齢・年俸整形 ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
@@ -45,7 +70,6 @@ def calc_academic_age(birth_str, target_year=2026):
     except Exception:
         return None
 
-# 年俸の表記をカード用に短く整形（例: "15,000万円" -> "1.5億"、"800万円" -> "800万"）
 def format_salary(salary_val):
     if pd.isna(salary_val):
         return "-"
@@ -69,16 +93,6 @@ def format_salary(salary_val):
 def load_data():
     df = pd.read_csv(CSV_URL, dtype={"背番号": str})
 
-    df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
-    fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
-    df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
-
-    # 年俸列の整形
-    if "年俸" in df.columns:
-        df["年俸_fmt"] = df["年俸"].apply(format_salary)
-    else:
-        df["年俸_fmt"] = "-"
-
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
     def check_shihai(no_str):
@@ -88,6 +102,33 @@ def load_data():
         return "支配下"
 
     df["契約区分"] = df["背番号"].apply(check_shihai)
+
+    # ★1. 退団選手の除外処理★
+    drop_indices = []
+    for team, names in RELEASED_PLAYERS.items():
+        for name in names:
+            # 姓名間の空白を無視して一致判定
+            clean_name = name.replace(" ", "").replace(" ", "")
+            matches = df[(df["球団名"] == team) & (df["選手名"].str.replace(" ", "").replace(" ", "") == clean_name)].index
+            drop_indices.extend(matches.tolist())
+    
+    if drop_indices:
+        df = df.drop(index=list(set(drop_indices)))
+
+    # ★2. 新規入団選手の追加処理★
+    add_df = pd.DataFrame(MANUAL_ADDITIONS)
+    df = pd.concat([df, add_df], ignore_index=True)
+
+    # 学年年齢計算と年俸整形
+    df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
+    fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
+    df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
+
+    if "年俸" in df.columns:
+        df["年俸_fmt"] = df["年俸"].apply(format_salary)
+    else:
+        df["年俸_fmt"] = "-"
+
     return df
 
 try:
@@ -249,7 +290,6 @@ app_html = f"""
         margin-bottom: 8px;
     }}
 
-    /* 年俸が入るため高さを少しだけ拡大（58px -> 62px） */
     .card {{
         height: 62px;
         border-radius: 6px;
@@ -275,7 +315,6 @@ app_html = f"""
         width: 100%;
         line-height: 1.15;
     }}
-    /* 年齢と年俸の表示エリア */
     .c-sub {{
         font-size: 9px;
         opacity: 0.85;
@@ -770,7 +809,6 @@ app_html = f"""
         }});
 
         if (currentMainTab === 'roster') {{
-            // 【戦力整理タブ】年齢と年俸を表示
             const target = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === currentPos);
             target.forEach(p => {{
                 const card = document.createElement('div');
