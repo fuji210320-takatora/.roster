@@ -2,32 +2,77 @@ import streamlit as st
 import pandas as pd
 import re
 
-# ページ基本設定
-st.set_page_config(page_title="NPB ROSTER LAB", layout="wide", initial_sidebar_state="collapsed")
+# 画面設定（centeredにして横の無駄な広がりをカット）
+st.set_page_config(page_title="NPB ROSTER LAB", layout="centered", initial_sidebar_state="collapsed")
 
-# --- スマホ完全強制3列化 & 超コンパクトCSS ---
+# --- 横スクロール完全禁止＆画面幅100%固定CSS ---
 st.markdown("""
 <style>
-/* 1. 画面全体の左右余白を最小化してスマホ幅を100%活用 */
+/* 1. 全ての親コンテナの横スクロール・横はみ出しを完全禁止 */
+html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"], .main, .block-container {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
 .block-container {
-    padding: 4px 4px 40px 4px !important;
+    padding: 6px 4px 40px 4px !important;
+}
+
+/* 2. カラムの親要素（行）を画面幅にぴったり合わせる */
+div[data-testid="stHorizontalBlock"] {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    min-width: 0 !important;
     max-width: 100% !important;
+    gap: 4px !important;
+    margin: 0 0 4px 0 !important;
+    overflow: hidden !important;
 }
 
-/* 2. チーム名・見出しのコンパクト化 */
-.main-title {
-    font-size: 1.25rem !important;
-    font-weight: 800 !important;
-    margin: 2px 0 0 0 !important;
-    line-height: 1.2 !important;
-}
-.sub-caption {
-    font-size: 0.65rem !important;
-    color: #666 !important;
-    margin-bottom: 6px !important;
+/* 3. 各カラムを画面幅の 1/3（32%）に強制固定 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+    flex: 1 1 32% !important;
+    width: 32% !important;
+    min-width: 0 !important;
+    max-width: 32.5% !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 
-/* 3. 上部メトリクス（数字バッジ）の小型化 */
+/* 4. ボタンをカード幅いっぱいに収め、文字がはみ出ないように設定 */
+div[data-testid="stButton"] {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+div[data-testid="stButton"] > button {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 44px !important;
+    height: 44px !important;
+    padding: 2px 1px !important;
+    border-radius: 6px !important;
+    border: 1px solid #cbd5e1 !important;
+    background-color: #ffffff;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+div[data-testid="stButton"] > button p {
+    font-size: 0.68rem !important;
+    white-space: pre-line !important;
+    line-height: 1.1 !important;
+    text-align: center !important;
+    margin: 0 !important;
+    word-break: break-all !important;
+}
+
+/* 5. 上部メトリクスの小型化 */
 div[data-testid="stMetric"] {
     background-color: #f8fafc;
     border-radius: 4px;
@@ -43,89 +88,6 @@ div[data-testid="stMetricValue"] div {
     font-weight: 700 !important;
     line-height: 1.1 !important;
 }
-
-/* 4. ★最重要★ スマホ画面でも絶対に横3列（幅約32%）を維持する指定 */
-@media (max-width: 768px) {
-    div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        justify-content: space-between !important;
-        gap: 3px !important;
-        width: 100% !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        flex: 1 1 32% !important;
-        min-width: 0px !important;
-        max-width: 32.5% !important;
-        width: 32% !important;
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-}
-
-/* PCやタブレットでも同様に3列幅を均等維持 */
-div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-    flex: 1 1 32% !important;
-    min-width: 0px !important;
-    max-width: 32.5% !important;
-    width: 32% !important;
-    padding: 0 !important;
-}
-
-/* 5. 選手カードボタン（タップで状態切り替え・コンパクト化） */
-div[data-testid="stButton"] {
-    width: 100% !important;
-    margin: 2px 0 !important;
-}
-div[data-testid="stButton"] > button {
-    width: 100% !important;
-    min-height: 46px !important;
-    height: auto !important;
-    padding: 3px 2px !important;
-    border-radius: 5px !important;
-    border: 1px solid #cbd5e1 !important;
-    background-color: #ffffff;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-div[data-testid="stButton"] > button p {
-    font-size: 0.70rem !important;
-    white-space: pre-line !important;
-    text-align: center !important;
-    line-height: 1.15 !important;
-    margin: 0 !important;
-}
-
-/* 育成チェックボックスカード */
-.ikusei-card {
-    background: #ffffff;
-    border: 1px solid #cbd5e1;
-    border-radius: 5px;
-    padding: 3px 2px;
-    text-align: center;
-    margin-bottom: 2px;
-}
-.ikusei-card-name {
-    font-size: 0.70rem;
-    font-weight: bold;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.1;
-}
-.ikusei-card-sub {
-    font-size: 0.60rem;
-    color: #666;
-}
-div[data-testid="stCheckbox"] {
-    margin-top: -2px !important;
-}
-div[data-testid="stCheckbox"] label span {
-    font-size: 0.65rem !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -138,17 +100,9 @@ TEAM_MAP = {
 }
 
 STATUS_CYCLE = ["残留", "戦力外", "育成移行", "現ドラ", "保留"]
+STATUS_EMOJI = {"残留": "⚪残留", "戦力外": "🔴戦力外", "育成移行": "🔵育成落", "現ドラ": "🟡現ドラ", "保留": "⚫保留"}
 
-# ステータスごとのアイコン表示
-STATUS_EMOJI = {
-    "残留": "⚪残留",
-    "戦力外": "🔴戦力外",
-    "育成移行": "🔵育成落",
-    "現ドラ": "🟡現ドラ",
-    "保留": "⚫保留"
-}
-
-# --- 2. データ読み込み（ネット経由） ---
+# --- 2. データ読み込み ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
@@ -179,7 +133,6 @@ if "roster_status" not in st.session_state:
 if "promoted_players" not in st.session_state:
     st.session_state.promoted_players = {}
 
-# サイドバー
 st.sidebar.title("設定")
 available_teams = [t for t in TEAM_MAP.values() if t in df_raw["球団名"].values]
 if not available_teams:
@@ -190,12 +143,10 @@ if st.sidebar.button("🔄 データを最新に更新"):
     st.cache_data.clear()
     st.rerun()
 
-# チームデータ抽出
 team_all_df = df_raw[df_raw["球団名"] == selected_team].copy()
 shihai_df = team_all_df[team_all_df["契約区分"] == "支配下"].copy()
 ikusei_df = team_all_df[team_all_df["契約区分"] == "育成"].copy()
 
-# セッション初期化
 if selected_team not in st.session_state.roster_status:
     st.session_state.roster_status[selected_team] = {
         row["No"]: "残留" for _, row in shihai_df.iterrows()
@@ -206,7 +157,6 @@ if selected_team not in st.session_state.promoted_players:
 current_status = st.session_state.roster_status[selected_team]
 promoted_list = st.session_state.promoted_players[selected_team]
 
-# 支配下に育成昇格組を合流
 promoted_df = ikusei_df[ikusei_df["No"].isin(promoted_list)].copy()
 target_df = pd.concat([shihai_df, promoted_df], ignore_index=True)
 
@@ -216,17 +166,16 @@ for p_no in promoted_list:
 
 target_df["区分"] = target_df["No"].map(current_status).fillna("残留")
 
-# --- 4. 集計計算 ---
+# --- 4. 集計 ---
 status_counts = {opt: (target_df["区分"] == opt).sum() for opt in STATUS_CYCLE}
 current_shihai_count = len(shihai_df)
 promoted_count = len(promoted_list)
 retained_total = status_counts["残留"] + status_counts["現ドラ"] + status_counts["保留"]
 
-# --- 5. メインヘッダー（スマホ最適化） ---
-st.markdown(f"<div class='main-title'>{selected_team}</div>", unsafe_allow_html=True)
-st.markdown(f"<div class='sub-caption'>支配下: {current_shihai_count}名 / 育成: {len(ikusei_df)}名</div>", unsafe_allow_html=True)
+# --- 5. ヘッダー表示 ---
+st.markdown(f"<h3 style='margin:0 0 2px 0; font-size:1.2rem;'>{selected_team}</h3>", unsafe_allow_html=True)
+st.caption(f"支配下: {current_shihai_count}名 / 育成: {len(ikusei_df)}名")
 
-# ダッシュボード（均等3列 × 2段）
 c1, c2, c3 = st.columns(3)
 c1.metric("支配下", f"{current_shihai_count}人")
 c2.metric("残留", f"{status_counts['残留']}人")
@@ -239,10 +188,9 @@ c6.metric("昇格", f"{promoted_count}人")
 
 st.markdown("<hr style='margin: 8px 0;'/>", unsafe_allow_html=True)
 
-# --- 6. タブ切り替え ---
+# --- 6. タブ ---
 tab_roster, tab_ikusei, tab_depth, tab_raw = st.tabs(["📋 戦力整理", "🌱 育成昇格", "📊 デプス", "📄 出力"])
 
-# 【タブ1: 戦力整理（1画面に3列収まるタップ式ボタン）】
 with tab_roster:
     pos_list = ["投手", "捕手", "内野手", "外野手"]
     pos_tabs = st.tabs([f"{p} ({len(target_df[target_df['守備位置'] == p])})" for p in pos_list])
@@ -251,7 +199,6 @@ with tab_roster:
         with p_tab:
             p_df = target_df[target_df["守備位置"] == pos]
             
-            # 3人ずつ1行に並べる
             for row_idx in range(0, len(p_df), 3):
                 row_players = p_df.iloc[row_idx:row_idx+3]
                 cols = st.columns(3)
@@ -267,14 +214,12 @@ with tab_roster:
                         cur_stat = "現ドラ"
 
                     with cols[col_idx]:
-                        # ボタン内に名前と現在のステータスを表示（タップするたびに循環切り替え）
                         btn_text = f"#{player['背番号']} {p_name}{badge}\n{STATUS_EMOJI.get(cur_stat, cur_stat)}"
                         if st.button(btn_text, key=f"btn_{selected_team}_{p_no}"):
                             next_idx = (STATUS_CYCLE.index(cur_stat) + 1) % len(STATUS_CYCLE)
                             st.session_state.roster_status[selected_team][p_no] = STATUS_CYCLE[next_idx]
                             st.rerun()
 
-# 【タブ2: 育成昇格（3列グリッド）】
 with tab_ikusei:
     st.caption("チェックを入れると支配下へ昇格します")
     if len(ikusei_df) == 0:
@@ -289,12 +234,7 @@ with tab_ikusei:
                 p_age = int(player["年齢_num"]) if pd.notnull(player["年齢_num"]) else "-"
                 is_checked = p_no in promoted_list
                 with ikusei_cols[col_idx]:
-                    st.markdown(f"""
-                    <div class='ikusei-card'>
-                        <div class='ikusei-card-name'>#{player['背番号']} {p_name}</div>
-                        <div class='ikusei-card-sub'>{player['守備位置']} / {p_age}歳</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div style='border:1px solid #cbd5e1; border-radius:4px; padding:2px; text-align:center;'><b style='font-size:0.7rem;'>#{player['背番号']} {p_name}</b><br><span style='font-size:0.6rem; color:#666;'>{player['守備位置']} {p_age}歳</span></div>", unsafe_allow_html=True)
                     checked = st.checkbox("昇格", value=is_checked, key=f"promo_{p_no}")
                     if checked != is_checked:
                         if checked:
@@ -303,7 +243,6 @@ with tab_ikusei:
                             st.session_state.promoted_players[selected_team].remove(p_no)
                         st.rerun()
 
-# 【タブ3: 年齢別デプス】
 with tab_depth:
     active_df = target_df[target_df["区分"].isin(["残留", "現ドラ", "保留"])].copy()
     bins = [0, 22, 25, 29, 34, 100]
@@ -312,13 +251,12 @@ with tab_depth:
     depth_matrix = pd.crosstab(active_df["守備位置"], active_df["年代"], dropna=False).reindex(pos_list)
     st.dataframe(depth_matrix, use_container_width=True)
 
-# 【タブ4: データ出力】
 with tab_raw:
     st.dataframe(target_df[["背番号", "選手名", "守備位置", "年齢", "区分"]], use_container_width=True)
     csv_data = target_df[["背番号", "選手名", "守備位置", "年齢", "区分"]].to_csv(index=False).encode("utf-8_sig")
     st.download_button(label="📥 CSV保存", data=csv_data, file_name=f"{selected_team}_sim.csv", mime="text/csv")
 
-# --- 7. 最下部：補強シミュレーション & 枠計算 ---
+# --- 7. 補強シミュレーション ---
 st.markdown("<hr style='margin: 12px 0 6px 0;'/>", unsafe_allow_html=True)
 st.markdown("<b style='font-size:0.9rem;'>📥 補強シミュレーション</b>", unsafe_allow_html=True)
 
@@ -337,7 +275,7 @@ remaining_slots = 70 - next_year_total
 res1, res2 = st.columns(2)
 with res1:
     st.markdown(f"**翌年支配下: {next_year_total}人**")
-    st.caption(f"(所属 {retained_total} + 新加入 {total_new_acquisitions})")
+    st.caption(f"(所属 {retained_total} + 新規 {total_new_acquisitions})")
 with res2:
     if remaining_slots >= 0:
         st.markdown(f"**70枠まで: あと <span style='color:#16a34a; font-size:1.15rem; font-weight:bold;'>{remaining_slots}</span> 枠**", unsafe_allow_html=True)
