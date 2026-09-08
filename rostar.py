@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import json
-import datetime
 
 # ページ基本設定
 st.set_page_config(
@@ -23,22 +22,19 @@ TEAM_MAP = {
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
-# 2026年度（2026年4月2日〜2027年4月1日）における学年満年齢を計算
 def calc_academic_age(birth_str, target_year=2026):
     try:
-        # 日付フォーマットの柔軟なパース (例: 1994/06/15, 1994-06-15)
         dt = pd.to_datetime(birth_str)
         b_year = dt.year
         b_month = dt.month
         b_day = dt.day
 
-        # 4月1日以前（早生まれ）は前年度生まれ扱い（学年計算）
+        # 4月1日以前（早生まれ）は前年度扱い
         if (b_month < 4) or (b_month == 4 and b_day == 1):
             school_year_birth = b_year - 1
         else:
             school_year_birth = b_year
 
-        # ターゲット年度（2026年度）に迎える年齢
         return target_year - school_year_birth
     except Exception:
         return None
@@ -46,14 +42,9 @@ def calc_academic_age(birth_str, target_year=2026):
 @st.cache_data(ttl=600)
 def load_data():
     df = pd.read_csv(CSV_URL)
-    
-    # 生年月日から学年年齢を計算
     df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
-    
-    # 欠損がある場合は元の年齢文字列から数値を抽出してフォールバック
     fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
     df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
-
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
     def check_shihai(no_str):
@@ -109,14 +100,13 @@ app_html = f"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-    body {{ background: transparent; padding: 4px 4px 30px 4px; overflow-x: hidden; }}
+    body {{ background: transparent; padding: 4px 4px 30px 4px; overflow-x: hidden; position: relative; }}
 
     /* タイトルとサマリー */
     .header {{ display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 4px; }}
     .title {{ font-size: 1.25rem; font-weight: 800; color: #111; }}
     .sub {{ font-size: 0.7rem; color: #666; }}
 
-    /* 年齢定義の注記 */
     .age-notice {{
         font-size: 0.68rem;
         color: #475569;
@@ -227,34 +217,33 @@ app_html = f"""
     .c-sub {{ font-size: 9.5px; opacity: 0.8; line-height: 1; }}
     .c-stat {{ font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.1; }}
 
-    /* ステータス別配色 */
+    /* ★指定配色：残留(白)、戦力外(赤)、引退(黄)、現ドラ(紫)、育成(青)、保留(灰)★ */
     .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
     .stat-残留 .c-stat {{ background-color: #f1f5f9; color: #475569; }}
 
     .stat-戦力外 {{ background-color: #fee2e2; border: 1.5px solid #f87171; color: #991b1b; }}
     .stat-戦力外 .c-stat {{ background-color: #fecaca; color: #991b1b; }}
 
+    .stat-引退 {{ background-color: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }}
+    .stat-引退 .c-stat {{ background-color: #fde68a; color: #92400e; }}
+
+    .stat-現ドラ {{ background-color: #f3e8ff; border: 1.5px solid #c084fc; color: #6b21a8; }}
+    .stat-現ドラ .c-stat {{ background-color: #e9d5ff; color: #6b21a8; }}
+
     .stat-育成移行 {{ background-color: #dbeafe; border: 1.5px solid #60a5fa; color: #1e40af; }}
     .stat-育成移行 .c-stat {{ background-color: #bfdbfe; color: #1e40af; }}
-
-    .stat-現ドラ {{ background-color: #fef3c7; border: 1.5px solid #f59e0b; color: #92400e; }}
-    .stat-現ドラ .c-stat {{ background-color: #fde68a; color: #92400e; }}
 
     .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
     .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
 
-    /* 年齢別デプスチャートのテーブルスタイル */
+    /* 年齢別デプスチャート */
     .depth-wrapper {{
         width: 100%;
         overflow-x: auto;
         margin-bottom: 16px;
         -webkit-overflow-scrolling: touch;
     }}
-    .depth-info {{
-        font-size: 0.72rem;
-        color: #64748b;
-        margin-bottom: 4px;
-    }}
+    .depth-info {{ font-size: 0.72rem; color: #64748b; margin-bottom: 4px; }}
     .depth-chart-table {{
         width: 100%;
         min-width: 340px;
@@ -285,10 +274,7 @@ app_html = f"""
         color: #1e293b;
         font-size: 0.8rem;
     }}
-    .depth-pos-col {{
-        width: 24%;
-        text-align: center;
-    }}
+    .depth-pos-col {{ width: 24%; text-align: center; }}
     .depth-chip {{
         display: inline-block;
         margin: 2px;
@@ -303,38 +289,56 @@ app_html = f"""
     }}
     .depth-chip:active {{ transform: scale(0.95); }}
 
-    /* モーダルポップアップ */
-    .modal-overlay {{
+    /* ★タップ位置連動型ポップアップ（絶対配置・吹き出し）★ */
+    .popover-backdrop {{
         display: none;
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5);
-        justify-content: center;
-        align-items: center;
+        background: rgba(0,0,0,0.15);
+        z-index: 998;
+    }}
+    .popover-menu {{
+        display: none;
+        position: absolute;
+        width: 170px;
+        background: #ffffff;
+        border-radius: 10px;
+        padding: 8px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+        border: 1px solid #cbd5e1;
         z-index: 999;
     }}
-    .modal {{
-        background: white;
-        border-radius: 10px;
-        padding: 14px;
-        width: 82%;
-        max-width: 280px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }}
-    .modal h4 {{ font-size: 14px; margin-bottom: 12px; color: #111; }}
-    .opt-btn {{
-        width: 100%;
-        padding: 9px 0;
-        margin-bottom: 6px;
-        border-radius: 6px;
-        font-size: 13px;
+    .pop-header {{
+        font-size: 11.5px;
         font-weight: bold;
-        border: 1px solid #ddd;
-        cursor: pointer;
+        color: #0f172a;
+        text-align: center;
+        margin-bottom: 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid #e2e8f0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }}
+    .pop-btn-grid {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+    }}
+    .pop-btn {{
+        width: 100%;
+        padding: 6px 2px;
+        border-radius: 5px;
+        font-size: 11px;
+        font-weight: bold;
+        border: 1px solid #cbd5e1;
+        cursor: pointer;
+        text-align: center;
+        line-height: 1.1;
+    }}
+    .pop-btn:active {{ transform: scale(0.96); }}
 
-    /* 補強エリア（最下部） */
+    /* 補強エリア */
     .bottom-section {{
         margin-top: 14px;
         padding-top: 10px;
@@ -374,7 +378,6 @@ app_html = f"""
         <div class="sub" id="headerSub"></div>
     </div>
 
-    <!-- 年齢定義の明記 -->
     <div class="age-notice">
         📌 <b>年齢の定義：</b>2026年度（2026年4月2日〜2027年4月1日）に迎える学年満年齢で集計しています（同学年で統一）。
     </div>
@@ -383,9 +386,9 @@ app_html = f"""
     <div class="metric-grid">
         <div class="metric-box"><div class="m-label">支配下</div><div class="m-val" id="cntShihai">0人</div></div>
         <div class="metric-box"><div class="m-label">残留</div><div class="m-val" id="cntZanryu">0人</div></div>
-        <div class="metric-box"><div class="m-label">戦力外</div><div class="m-val" id="cntSenryokugai" style="color:#dc2626;">0人</div></div>
+        <div class="metric-box"><div class="m-label">戦力外/引退</div><div class="m-val" id="cntTaiDan" style="color:#dc2626;">0人</div></div>
         <div class="metric-box"><div class="m-label">育成落</div><div class="m-val" id="cntIkuseiOchi" style="color:#2563eb;">0人</div></div>
-        <div class="metric-box"><div class="m-label">現ドラ</div><div class="m-val" id="cntGendora" style="color:#d97706;">0人</div></div>
+        <div class="metric-box"><div class="m-label">現ドラ</div><div class="m-val" id="cntGendora" style="color:#6b21a8;">0人</div></div>
         <div class="metric-box"><div class="m-label">昇格</div><div class="m-val" id="cntShokaku" style="color:#16a34a;">0人</div></div>
     </div>
 
@@ -396,7 +399,7 @@ app_html = f"""
         <button class="tab-btn" onclick="switchMainTab('ikusei')">🌱 育成昇格</button>
     </div>
 
-    <!-- ポジション選択（戦力整理タブ時のみ表示） -->
+    <!-- ポジション選択 -->
     <div id="posTabsContainer" class="pos-tabs">
         <button class="pos-btn active" onclick="switchPos('投手')">投手</button>
         <button class="pos-btn" onclick="switchPos('捕手')">捕手</button>
@@ -407,7 +410,7 @@ app_html = f"""
     <!-- 選手カードグリッド -->
     <div class="grid" id="cardGrid"></div>
 
-    <!-- 年齢別デプスチャート表示領域 -->
+    <!-- 年齢別デプスチャート -->
     <div id="depthContainer" style="display:none;">
         <div class="depth-info">2026年度学年年齢デプス（横にスクロールできます）</div>
         <div class="depth-wrapper">
@@ -448,15 +451,17 @@ app_html = f"""
         </div>
     </div>
 
-    <!-- 区分選択モーダル -->
-    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
-        <div class="modal" onclick="event.stopPropagation()">
-            <h4 id="modalTitle">選手名</h4>
-            <button class="opt-btn stat-残留" onclick="applyStatus('残留')">残留</button>
-            <button class="opt-btn stat-戦力外" onclick="applyStatus('戦力外')">戦力外</button>
-            <button class="opt-btn stat-育成移行" onclick="applyStatus('育成移行')">育成移行</button>
-            <button class="opt-btn stat-現ドラ" onclick="applyStatus('現ドラ')">現役ドラフト</button>
-            <button class="opt-btn stat-保留" onclick="applyStatus('保留')">保留</button>
+    <!-- ★タップ位置追従型ポップアップメニュー★ -->
+    <div class="popover-backdrop" id="popoverBackdrop" onclick="closePopover()"></div>
+    <div class="popover-menu" id="popoverMenu">
+        <div class="pop-header" id="popHeader">選手名</div>
+        <div class="pop-btn-grid">
+            <button class="pop-btn stat-残留" onclick="applyStatus('残留')">残留</button>
+            <button class="pop-btn stat-戦力外" onclick="applyStatus('戦力外')">戦力外</button>
+            <button class="pop-btn stat-引退" onclick="applyStatus('引退')">引退</button>
+            <button class="pop-btn stat-現ドラ" onclick="applyStatus('現ドラ')">現役ドラ</button>
+            <button class="pop-btn stat-育成移行" onclick="applyStatus('育成移行')">育成落</button>
+            <button class="pop-btn stat-保留" onclick="applyStatus('保留')">保留</button>
         </div>
     </div>
 
@@ -480,6 +485,7 @@ app_html = f"""
         document.getElementById('posTabsContainer').style.display = (tab === 'roster') ? 'flex' : 'none';
         document.getElementById('cardGrid').style.display = (tab === 'depth') ? 'none' : 'grid';
         document.getElementById('depthContainer').style.display = (tab === 'depth') ? 'block' : 'none';
+        closePopover();
         render();
     }}
 
@@ -488,6 +494,7 @@ app_html = f"""
         document.querySelectorAll('.pos-btn').forEach(b => {{
             b.classList.toggle('active', b.innerText.startsWith(pos));
         }});
+        closePopover();
         render();
     }}
 
@@ -512,7 +519,8 @@ app_html = f"""
                     <div class="c-sub">${{p.age}}歳</div>
                     <div class="c-stat">${{p.status}}</div>
                 `;
-                card.onclick = () => openModal(p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`);
+                // タップした要素自身（e.currentTarget）を渡して位置計算
+                card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`);
                 grid.appendChild(card);
             }});
         }} else if (currentMainTab === 'ikusei') {{
@@ -542,12 +550,9 @@ app_html = f"""
         tbody.innerHTML = '';
 
         const activePlayers = allPlayers.filter(p => !p.is_ikusei || p.promoted);
-
-        // 学年年齢の最大・最小値を取得
         const validAges = activePlayers.map(p => parseInt(p.age)).filter(a => !isNaN(a));
         const maxAge = validAges.length > 0 ? Math.max(...validAges) : 38;
         const minAge = validAges.length > 0 ? Math.min(...validAges) : 18;
-
         const positions = ['投手', '捕手', '内野手', '外野手'];
 
         for (let age = maxAge; age >= minAge; age--) {{
@@ -560,7 +565,7 @@ app_html = f"""
                 playersAtAge.forEach(p => {{
                     const badge = p.promoted ? '🌱' : '';
                     chipsHtml += `
-                        <div class="depth-chip stat-${{p.status}}" onclick="openModal(${{p.no}}, '#${{p.num}} ${{p.name}} (${{p.age}}歳)')">
+                        <div class="depth-chip stat-${{p.status}}" onclick="openPopover(this, ${{p.no}}, '#${{p.num}} ${{p.name}} (${{p.age}}歳)')">
                             ${{p.name}}${{badge}}
                         </div>
                     `;
@@ -573,18 +578,49 @@ app_html = f"""
         }}
     }}
 
-    function openModal(no, title) {{
+    // ★タップした位置のすぐ上にポップアップを表示する計算ロジック★
+    function openPopover(targetEl, no, title) {{
         selectedPlayerNo = no;
-        document.getElementById('modalTitle').innerText = title;
-        document.getElementById('modalOverlay').style.display = 'flex';
+        document.getElementById('popHeader').innerText = title;
+
+        const pop = document.getElementById('popoverMenu');
+        const backdrop = document.getElementById('popoverBackdrop');
+
+        // タップした要素の画面上での座標とスクロール位置を取得
+        const rect = targetEl.getBoundingClientRect();
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+        // ポップアップのサイズ
+        const popWidth = 170;
+        const popHeight = 110;
+
+        // 水平位置：タップ要素の中央に合わせつつ、画面端からはみ出さないように調整
+        let left = rect.left + scrollLeft + (rect.width / 2) - (popWidth / 2);
+        const maxLeft = document.documentElement.clientWidth - popWidth - 8;
+        if (left < 8) left = 8;
+        if (left > maxLeft) left = maxLeft;
+
+        // 垂直位置：基本は「カードのすぐ上」。画面最上部付近なら「カードのすぐ下」に出す
+        let top = rect.top + scrollTop - popHeight - 6;
+        if (rect.top < popHeight + 10) {{
+            top = rect.bottom + scrollTop + 6; // 下に出す
+        }}
+
+        pop.style.left = `${{left}}px`;
+        pop.style.top = `${{top}}px`;
+
+        backdrop.style.display = 'block';
+        pop.style.display = 'block';
     }}
 
-    function closeModal() {{
-        document.getElementById('modalOverlay').style.display = 'none';
+    function closePopover() {{
+        document.getElementById('popoverBackdrop').style.display = 'none';
+        document.getElementById('popoverMenu').style.display = 'none';
     }}
 
     function applyStatus(status) {{
-        closeModal();
+        closePopover();
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
         if (p) {{
             p.status = status;
@@ -600,18 +636,22 @@ app_html = f"""
         const activeShihai = allPlayers.filter(p => !p.is_ikusei || p.promoted);
         const promotedCount = allPlayers.filter(p => p.is_ikusei && p.promoted).length;
 
-        const counts = {{ '残留': 0, '戦力外': 0, '育成移行': 0, '現ドラ': 0, '保留': 0 }};
+        const counts = {{ '残留': 0, '戦力外': 0, '引退': 0, '育成移行': 0, '現ドラ': 0, '保留': 0 }};
         activeShihai.forEach(p => {{
             if (counts[p.status] !== undefined) counts[p.status]++;
         }});
 
+        // 退団計（戦力外 ＋ 引退）
+        const taidanTotal = counts['戦力外'] + counts['引退'];
+
         document.getElementById('cntShihai').innerText = `${{shihaiOrigin}}人`;
         document.getElementById('cntZanryu').innerText = `${{counts['残留']}}人`;
-        document.getElementById('cntSenryokugai').innerText = `${{counts['戦力外']}}人`;
+        document.getElementById('cntTaiDan').innerText = `${{taidanTotal}}人`;
         document.getElementById('cntIkuseiOchi').innerText = `${{counts['育成移行']}}人`;
         document.getElementById('cntGendora').innerText = `${{counts['現ドラ']}}人`;
         document.getElementById('cntShokaku').innerText = `${{promotedCount}}人`;
 
+        // 翌年支配下計算（残留 ＋ 現ドラ ＋ 保留 ＋ 外部獲得）
         const inDraft = parseInt(document.getElementById('inDraft').value) || 0;
         const inFa = parseInt(document.getElementById('inFa').value) || 0;
         const inForeign = parseInt(document.getElementById('inForeign').value) || 0;
@@ -635,5 +675,4 @@ app_html = f"""
 </html>
 """
 
-# デプス表も含めて縦長スクロールがスムーズに動く高さを指定
-components.html(app_html, height=1250, scrolling=True)
+components.html(app_html, height=1300, scrolling=True)
