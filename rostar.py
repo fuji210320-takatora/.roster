@@ -3,38 +3,64 @@ import pandas as pd
 import re
 
 # ページレイアウト
-st.set_page_config(page_title="NPB ROSTER LAB", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="NPB ROSTER LAB", layout="centered", initial_sidebar_state="collapsed")
 
-# --- スマホでも横3列を崩さないためのカスタムCSS ---
+# --- コンパクト＆スマホ3列対応カスタムCSS ---
 st.markdown("""
 <style>
-/* スマホ画面でもcolumnsが1列に落ちずに横3列をキープする設定 */
+/* メインコンテンツ全体の横幅をスマホ幅（最大720px）に制限して中央寄せ */
+.block-container {
+    max-width: 720px !important;
+    padding-top: 2rem !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    margin: 0 auto !important;
+}
+
+/* スマホ画面や狭い画面でも横3列を絶対に崩さない設定 */
 [data-testid="column"] {
     min-width: 0px !important;
-    padding: 0 4px !important;
+    padding: 0 2px !important;
 }
 div[data-testid="stHorizontalBlock"] {
     display: flex !important;
     flex-direction: row !important;
     flex-wrap: nowrap !important;
-    gap: 6px !important;
+    gap: 4px !important;
 }
-/* カード内の余白と文字サイズをスマホ向けにコンパクト化 */
+
+/* カードを極力スリム・コンパクトに */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    padding: 8px 6px !important;
-    border-radius: 8px !important;
+    padding: 6px 4px !important;
+    border-radius: 6px !important;
 }
+
+/* 選手名（見切れ防止・文字サイズ調整） */
 .player-name {
     font-weight: bold;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.2;
 }
+
+/* 年齢・投打などの補足テキスト */
 .player-info {
-    font-size: 0.75rem;
-    color: #666;
-    margin-bottom: 4px;
+    font-size: 0.70rem;
+    color: #777;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+/* セレクトボックスの余白と高さを最小化 */
+div[data-testid="stSelectbox"] {
+    margin-top: -4px !important;
+}
+div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+    min-height: 30px !important;
+    height: 30px !important;
+    font-size: 0.78rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -86,10 +112,9 @@ except Exception as e:
 if "roster_status" not in st.session_state:
     st.session_state.roster_status = {}
 if "promoted_players" not in st.session_state:
-    # 育成から支配下に昇格させた選手のNoリスト {球団: [No1, No2]}
     st.session_state.promoted_players = {}
 
-# --- 4. サイドバー設定（球団選択のみ） ---
+# --- 4. サイドバー設定 ---
 st.sidebar.title("⚾ 設定")
 available_teams = [t for t in TEAM_MAP.values() if t in df_raw["球団名"].values]
 if not available_teams:
@@ -117,28 +142,27 @@ if selected_team not in st.session_state.promoted_players:
 current_status = st.session_state.roster_status[selected_team]
 promoted_list = st.session_state.promoted_players[selected_team]
 
-# 支配下リストに育成昇格組を合流
+# 支配下＋育成昇格組の合流
 promoted_df = ikusei_df[ikusei_df["No"].isin(promoted_list)].copy()
 target_df = pd.concat([shihai_df, promoted_df], ignore_index=True)
 
-# 昇格した選手の初期ステータス登録
 for p_no in promoted_list:
     if p_no not in current_status:
         current_status[p_no] = "残留"
 
 target_df["区分"] = target_df["No"].map(current_status).fillna("残留")
 
-# --- 5. 集計の事前計算 ---
+# --- 5. 集計計算 ---
 status_counts = {opt: (target_df["区分"] == opt).sum() for opt in STATUS_OPTIONS}
 current_shihai_count = len(shihai_df)
 promoted_count = len(promoted_list)
 retained_total = status_counts["残留"] + status_counts["現役ドラフト"] + status_counts["保留"]
 
-# --- 6. メインヘッダー（ダッシュボード） ---
+# --- 6. メインヘッダー ---
 st.title(f"{selected_team}")
-st.caption(f"登録選手：支配下 {current_shihai_count}名 / 育成 {len(ikusei_df)}名")
+st.caption(f"支配下: {current_shihai_count}名 / 育成: {len(ikusei_df)}名")
 
-# バッジ表示（2行3列でスマホでも見やすく）
+# ダッシュボード（上部2行×3列）
 c1, c2, c3 = st.columns(3)
 c1.metric("現在支配下", f"{current_shihai_count}人")
 c2.metric("残留", f"{status_counts['残留']}人")
@@ -152,9 +176,9 @@ c6.metric("育成昇格", f"{promoted_count}人", delta=f"+{promoted_count}" if 
 st.markdown("---")
 
 # --- 7. メインコンテンツ（タブ） ---
-tab_roster, tab_ikusei, tab_depth, tab_raw = st.tabs(["📋 戦力整理", "🌱 育成昇格", "📊 年齢別デプス", "📄 一覧出力"])
+tab_roster, tab_ikusei, tab_depth, tab_raw = st.tabs(["📋 戦力整理", "🌱 育成昇格", "📊 デプス", "📄 出力"])
 
-# 【タブ1: 戦力整理（スマホ対応3列カード）】
+# 【タブ1: 戦力整理（スリム3列カード）】
 with tab_roster:
     pos_list = ["投手", "捕手", "内野手", "外野手"]
     pos_tabs = st.tabs([f"{p} ({len(target_df[target_df['守備位置'] == p])})" for p in pos_list])
@@ -162,9 +186,8 @@ with tab_roster:
     for p_tab, pos in zip(pos_tabs, pos_list):
         with p_tab:
             p_df = target_df[target_df["守備位置"] == pos]
-            
-            # 3列グリッドで並べる
             cols = st.columns(3)
+            
             for idx, (_, player) in enumerate(p_df.iterrows()):
                 p_no = player["No"]
                 p_name = player["選手名"]
@@ -175,7 +198,7 @@ with tab_roster:
                     with st.container(border=True):
                         label_promoted = " 🟢" if is_promoted else ""
                         st.markdown(f"<div class='player-name'>#{player['背番号']} {p_name}{label_promoted}</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='player-info'>{p_age}歳 | {player['投打']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='player-info'>{p_age}歳 / {player['投打']}</div>", unsafe_allow_html=True)
 
                         cur_stat = current_status.get(p_no, "残留")
                         new_stat = st.selectbox(
@@ -189,13 +212,11 @@ with tab_roster:
                             st.session_state.roster_status[selected_team][p_no] = new_stat
                             st.rerun()
 
-# 【タブ2: 育成から支配下への昇格設定】
+# 【タブ2: 育成から支配下への昇格】
 with tab_ikusei:
-    st.subheader("育成選手の支配下登録")
-    st.caption("チェックを入れると支配下リストに追加され、枠計算・デプスチャートに反映されます。")
-    
+    st.subheader("育成選手の支配下昇格")
     if len(ikusei_df) == 0:
-        st.info("この球団には育成登録の選手がいません。")
+        st.info("育成選手はいません。")
     else:
         ikusei_cols = st.columns(3)
         for idx, (_, player) in enumerate(ikusei_df.iterrows()):
@@ -206,9 +227,9 @@ with tab_ikusei:
             is_checked = p_no in promoted_list
             with ikusei_cols[idx % 3]:
                 with st.container(border=True):
-                    st.markdown(f"**#{player['背番号']} {p_name}**")
-                    st.caption(f"{player['守備位置']} / {p_age}歳")
-                    checked = st.checkbox("支配下昇格", value=is_checked, key=f"promo_{p_no}")
+                    st.markdown(f"<div class='player-name'>#{player['背番号']} {p_name}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='player-info'>{player['守備位置']} / {p_age}歳</div>", unsafe_allow_html=True)
+                    checked = st.checkbox("昇格", value=is_checked, key=f"promo_{p_no}")
                     
                     if checked != is_checked:
                         if checked:
@@ -219,11 +240,11 @@ with tab_ikusei:
 
 # 【タブ3: 年齢別デプス】
 with tab_depth:
-    st.subheader("翌年の所属戦力デプス（支配下＋昇格）")
+    st.subheader("翌年の所属戦力デプス")
     active_df = target_df[target_df["区分"].isin(["残留", "現役ドラフト", "保留"])].copy()
 
     bins = [0, 22, 25, 29, 34, 100]
-    labels = ["〜22歳 (若手)", "23〜25歳", "26〜29歳 (主力)", "30〜34歳", "35歳〜"]
+    labels = ["〜22歳", "23〜25歳", "26〜29歳", "30〜34歳", "35歳〜"]
     active_df["年代"] = pd.cut(active_df["年齢_num"], bins=bins, labels=labels, right=True)
 
     depth_matrix = pd.crosstab(active_df["守備位置"], active_df["年代"], dropna=False).reindex(pos_list)
@@ -231,7 +252,7 @@ with tab_depth:
 
 # 【タブ4: 一覧出力】
 with tab_raw:
-    st.subheader("シミュレーション結果一覧")
+    st.subheader("データ出力")
     st.dataframe(target_df[["背番号", "選手名", "守備位置", "年齢", "年俸", "区分"]], use_container_width=True)
     csv_data = target_df[["背番号", "選手名", "守備位置", "年齢", "年俸", "区分"]].to_csv(index=False).encode("utf-8_sig")
     st.download_button(
@@ -241,9 +262,9 @@ with tab_raw:
         mime="text/csv"
     )
 
-# --- 8. 一番下に配置：補強シミュレーション & 翌年枠計算 ---
+# --- 8. 最下部：補強シミュレーション & 翌年支配下枠 ---
 st.markdown("---")
-st.subheader("📥 補強シミュレーション & 翌年支配下枠")
+st.subheader("📥 補強シミュレーション & 翌年枠")
 
 b_col1, b_col2, b_col3, b_col4 = st.columns(4)
 with b_col1:
@@ -255,8 +276,6 @@ with b_col3:
 with b_col4:
     other_in = st.number_input("その他新加入", min_value=0, max_value=10, value=0)
 
-# 翌年総数計算（残留ベース ＋ 外部獲得人数）
-# ※育成昇格は既に target_df 内で残留／戦力外等の判定に含まれています
 total_new_acquisitions = draft_in + fa_trade_in + foreign_in + other_in
 next_year_total = retained_total + total_new_acquisitions
 remaining_slots = 70 - next_year_total
