@@ -66,7 +66,8 @@ for _, r in team_df.iterrows():
         "pos": str(r["守備位置"]),
         "age": str(p_age),
         "is_ikusei": r["契約区分"] == "育成",
-        "status": "残留"
+        "status": "残留",
+        "promoted": False
     })
 
 players_json = json.dumps(players_list, ensure_ascii=False)
@@ -149,7 +150,7 @@ app_html = f"""
         border-color: #334155;
     }}
 
-    /* ★完全な横3列・均等サイズグリッド★ */
+    /* 戦力整理グリッド */
     .grid {{
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -186,7 +187,7 @@ app_html = f"""
     .c-sub {{ font-size: 9.5px; opacity: 0.8; line-height: 1; }}
     .c-stat {{ font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.1; }}
 
-    /* ステータス別の背景色・文字色 */
+    /* ステータス別の配色 */
     .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
     .stat-残留 .c-stat {{ background-color: #f1f5f9; color: #475569; }}
 
@@ -202,23 +203,66 @@ app_html = f"""
     .stat-保留 {{ background-color: #f1f5f9; border: 1.5px solid #94a3b8; color: #475569; }}
     .stat-保留 .c-stat {{ background-color: #e2e8f0; color: #334155; }}
 
-    /* デプステーブル用 */
-    .depth-table {{
+    /* ★年齢別デプスチャートのテーブルスタイル★ */
+    .depth-wrapper {{
         width: 100%;
-        border-collapse: collapse;
-        font-size: 0.72rem;
+        overflow-x: auto;
         margin-bottom: 16px;
+        -webkit-overflow-scrolling: touch;
+    }}
+    .depth-info {{
+        font-size: 0.72rem;
+        color: #64748b;
+        margin-bottom: 4px;
+    }}
+    .depth-chart-table {{
+        width: 100%;
+        min-width: 340px;
+        border-collapse: collapse;
+        font-size: 0.75rem;
         background: #fff;
-        border-radius: 6px;
-        overflow: hidden;
         border: 1px solid #cbd5e1;
     }}
-    .depth-table th, .depth-table td {{
-        padding: 5px 4px;
-        text-align: center;
+    .depth-chart-table th, .depth-chart-table td {{
         border: 1px solid #e2e8f0;
+        padding: 5px 3px;
+        vertical-align: middle;
     }}
-    .depth-table th {{ background: #f8fafc; font-weight: bold; color: #475569; }}
+    .depth-chart-table th {{
+        background: #f1f5f9;
+        color: #334155;
+        font-weight: bold;
+        text-align: center;
+        position: sticky;
+        top: 0;
+    }}
+    .depth-age-col {{
+        width: 38px;
+        min-width: 38px;
+        text-align: center;
+        font-weight: 800;
+        background: #f8fafc;
+        color: #1e293b;
+        font-size: 0.8rem;
+    }}
+    .depth-pos-col {{
+        width: 24%;
+        text-align: center;
+    }}
+    /* デプス表の中の選手チップ（タップ可能） */
+    .depth-chip {{
+        display: inline-block;
+        margin: 2px;
+        padding: 3px 5px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+        cursor: pointer;
+        white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        line-height: 1.15;
+    }}
+    .depth-chip:active {{ transform: scale(0.95); }}
 
     /* モーダルポップアップ */
     .modal-overlay {{
@@ -304,8 +348,8 @@ app_html = f"""
     <!-- タブ -->
     <div class="nav-tabs">
         <button class="tab-btn active" onclick="switchMainTab('roster')">📋 戦力整理</button>
+        <button class="tab-btn" onclick="switchMainTab('depth')">📊 年齢別デプス</button>
         <button class="tab-btn" onclick="switchMainTab('ikusei')">🌱 育成昇格</button>
-        <button class="tab-btn" onclick="switchMainTab('depth')">📊 デプス</button>
     </div>
 
     <!-- ポジション選択（戦力整理タブ時のみ表示） -->
@@ -319,14 +363,23 @@ app_html = f"""
     <!-- 選手カードグリッド -->
     <div class="grid" id="cardGrid"></div>
 
-    <!-- デプステーブル表示領域 -->
+    <!-- 年齢別デプスチャート表示領域 -->
     <div id="depthContainer" style="display:none;">
-        <table class="depth-table">
-            <thead>
-                <tr><th>位置</th><th>〜22</th><th>23-25</th><th>26-29</th><th>30-34</th><th>35〜</th><th>計</th></tr>
-            </thead>
-            <tbody id="depthBody"></tbody>
-        </table>
+        <div class="depth-info">2026年シーズン中に迎える年齢（横にスクロールできます）</div>
+        <div class="depth-wrapper">
+            <table class="depth-chart-table">
+                <thead>
+                    <tr>
+                        <th class="depth-age-col">年齢</th>
+                        <th class="depth-pos-col">投手</th>
+                        <th class="depth-pos-col">捕手</th>
+                        <th class="depth-pos-col">内野手</th>
+                        <th class="depth-pos-col">外野手</th>
+                    </tr>
+                </thead>
+                <tbody id="depthChartBody"></tbody>
+            </table>
+        </div>
     </div>
 
     <!-- 最下部：補強シミュレーション -->
@@ -376,8 +429,8 @@ app_html = f"""
         document.querySelectorAll('.tab-btn').forEach((b, i) => {{
             b.classList.toggle('active', 
                 (tab === 'roster' && i === 0) || 
-                (tab === 'ikusei' && i === 1) ||
-                (tab === 'depth' && i === 2)
+                (tab === 'depth' && i === 1) ||
+                (tab === 'ikusei' && i === 2)
             );
         }});
         document.getElementById('posTabsContainer').style.display = (tab === 'roster') ? 'flex' : 'none';
@@ -436,37 +489,51 @@ app_html = f"""
                 grid.appendChild(card);
             }});
         }} else if (currentMainTab === 'depth') {{
-            renderDepth();
+            renderDepthChart();
         }}
         calcTotals();
     }}
 
-    function renderDepth() {{
-        const tbody = document.getElementById('depthBody');
+    // ★年齢別デプスチャートの描画（タップで選択肢モーダル対応）★
+    function renderDepthChart() {{
+        const tbody = document.getElementById('depthChartBody');
         tbody.innerHTML = '';
-        const active = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && ['残留', '現ドラ', '保留'].includes(p.status));
+
+        // 対象：支配下選手 ＋ 育成昇格選手
+        const activePlayers = allPlayers.filter(p => !p.is_ikusei || p.promoted);
+
+        // 球団内の最高年齢と最低年齢を動的に取得
+        const validAges = activePlayers.map(p => parseInt(p.age)).filter(a => !isNaN(a));
+        const maxAge = validAges.length > 0 ? Math.max(...validAges) : 38;
+        const minAge = validAges.length > 0 ? Math.min(...validAges) : 18;
+
         const positions = ['投手', '捕手', '内野手', '外野手'];
 
-        positions.forEach(pos => {{
-            const pList = active.filter(p => p.pos === pos);
-            const cU22 = pList.filter(p => p.age !== '-' && parseInt(p.age) <= 22).length;
-            const c2325 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 23 && parseInt(p.age) <= 25).length;
-            const c2629 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 26 && parseInt(p.age) <= 29).length;
-            const c3034 = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 30 && parseInt(p.age) <= 34).length;
-            const c35O = pList.filter(p => p.age !== '-' && parseInt(p.age) >= 35).length;
-
+        // 高い年齢から順に1歳刻みで行を生成
+        for (let age = maxAge; age >= minAge; age--) {{
             const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td style="font-weight:bold;">${{pos}}</td>
-                <td>${{cU22}}</td>
-                <td>${{c2325}}</td>
-                <td>${{c2629}}</td>
-                <td>${{c3034}}</td>
-                <td>${{c35O}}</td>
-                <td style="font-weight:bold; background:#f8fafc;">${{pList.length}}</td>
-            `;
+            
+            // 年齢セル
+            let rowHtml = `<td class="depth-age-col">${{age}}</td>`;
+
+            // 各ポジションのセル
+            positions.forEach(pos => {{
+                const playersAtAge = activePlayers.filter(p => parseInt(p.age) === age && p.pos === pos);
+                let chipsHtml = '';
+                playersAtAge.forEach(p => {{
+                    const badge = p.promoted ? '🌱' : '';
+                    chipsHtml += `
+                        <div class="depth-chip stat-${{p.status}}" onclick="openModal(${{p.no}}, '#${{p.num}} ${{p.name}} (${{p.age}}歳)')">
+                            ${{p.name}}${{badge}}
+                        </div>
+                    `;
+                }});
+                rowHtml += `<td class="depth-pos-col">${{chipsHtml}}</td>`;
+            }});
+
+            tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
-        }});
+        }}
     }}
 
     function openModal(no, title) {{
@@ -484,7 +551,7 @@ app_html = f"""
         const p = allPlayers.find(x => x.no === selectedPlayerNo);
         if (p) {{
             p.status = status;
-            render();
+            render(); // デプスチャートでも即座に色と文字が更新される
         }}
     }}
 
@@ -508,6 +575,7 @@ app_html = f"""
         document.getElementById('cntGendora').innerText = `${{counts['現ドラ']}}人`;
         document.getElementById('cntShokaku').innerText = `${{promotedCount}}人`;
 
+        // 補強シミュレーション枠計算
         const inDraft = parseInt(document.getElementById('inDraft').value) || 0;
         const inFa = parseInt(document.getElementById('inFa').value) || 0;
         const inForeign = parseInt(document.getElementById('inForeign').value) || 0;
@@ -531,5 +599,5 @@ app_html = f"""
 </html>
 """
 
-# 投手35名＋補強エリアがすっぽり収まる余裕のある高さを指定し、スクロールを許可
-components.html(app_html, height=1050, scrolling=True)
+# デプス表（38歳〜18歳の縦長スクロール）もすっぽり収まる高さを指定
+components.html(app_html, height=1200, scrolling=True)
