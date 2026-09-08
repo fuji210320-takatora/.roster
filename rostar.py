@@ -23,29 +23,27 @@ TEAM_MAP = {
 
 STATUS_OPTIONS = ["残留", "戦力外", "育成移行", "現役ドラフト", "保留"]
 
-# --- 2. データ読み込み＆前処理 ---
-@st.cache_data
-def load_data():
-    # ローカルのCSVファイルを読み込む場合
-    file_path = "baseball_data.csv"
-    
-    # ※もしスプレッドシートから直接読む場合は、共有リンクを以下のようにエクスポートURLに変換して読み込めます
-    # sheet_id = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
-    # url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
-    # df = pd.read_csv(url)
+# --- 2. データ読み込み＆前処理（ネット経由） ---
+# スプレッドシートID
+SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
+# 直接CSVとして取得できるGoogleの公開エンドポイントURL
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
-    df = pd.read_csv(file_path)
+# キャッシュを有効にしつつ、スプレッドシート更新時にも追従できるようにTTL（有効期限）を設定
+@st.cache_data(ttl=600)  # 10分ごとに自動再取得
+def load_data():
+    # ネット経由でGoogleスプレッドシートを直接CSVとして読み込む
+    df = pd.read_csv(CSV_URL)
 
     # 年齢の「32歳」から数値を抽出
     df["年齢_num"] = df["年齢"].astype(str).str.extract(r'(\d+)').astype(float)
     
-    # 球団名カラムを作成
+    # 球団コードマッピング
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
-    # 支配下 / 育成 の簡易判定（背番号が3桁なら育成、それ以外は支配下）
+    # 支配下 / 育成 の判定（背番号が3桁なら育成、それ以外は支配下）
     def check_shihai(no_str):
         s = str(no_str).strip()
-        # 3桁以上の数字、または0から始まる3桁などは育成
         if len(s) >= 3 and s.lstrip('0') != "":
             return "育成"
         return "支配下"
@@ -193,4 +191,4 @@ with tab_raw:
         data=csv_data,
         file_name=f"{selected_team}_sim_result.csv",
         mime="text/csv"
-      )
+)
