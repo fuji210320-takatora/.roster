@@ -25,7 +25,7 @@ TEAM_CODE_MAP = {
     "東北楽天ゴールデンイーグルス": "E", "オリックス・バファローズ": "B", "埼玉西武ライオンズ": "L",
 }
 
-# --- 2. データ読み込み＆学年年齢計算 ---
+# --- 2. データ読み込み＆学年年齢・年俸整形 ---
 SHEET_ID = "1I1JsaaQlYHj1zIsOKkFWkc1yAuoNDnpVdy_pLNW5na8"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv"
 
@@ -45,6 +45,26 @@ def calc_academic_age(birth_str, target_year=2026):
     except Exception:
         return None
 
+# 年俸の表記をカード用に短く整形（例: "15,000万円" -> "1.5億"、"800万円" -> "800万"）
+def format_salary(salary_val):
+    if pd.isna(salary_val):
+        return "-"
+    s = str(salary_val).replace(" ", "").replace(",", "").replace("推定", "").replace("円", "")
+    try:
+        if "万" in s:
+            num = float(s.replace("万", ""))
+            if num >= 10000:
+                oku = num / 10000
+                return f"{oku:.1f}億".replace(".0億", "億")
+            return f"{int(num)}万"
+        num = float(s)
+        if num >= 10000:
+            oku = num / 10000
+            return f"{oku:.1f}億".replace(".0億", "億")
+        return f"{int(num)}万"
+    except Exception:
+        return str(salary_val)
+
 @st.cache_data(ttl=600)
 def load_data():
     df = pd.read_csv(CSV_URL, dtype={"背番号": str})
@@ -52,6 +72,13 @@ def load_data():
     df["学年年齢"] = df["生年月日"].apply(calc_academic_age)
     fallback_age = df["年齢"].astype(str).str.extract(r'(\d+)')[0].astype(float)
     df["学年年齢"] = df["学年年齢"].fillna(fallback_age)
+
+    # 年俸列の整形
+    if "年俸" in df.columns:
+        df["年俸_fmt"] = df["年俸"].apply(format_salary)
+    else:
+        df["年俸_fmt"] = "-"
+
     df["球団名"] = df["コード"].map(TEAM_MAP).fillna(df["コード"])
 
     def check_shihai(no_str):
@@ -88,12 +115,14 @@ players_list = []
 for _, r in team_df.iterrows():
     p_age = int(r["学年年齢"]) if pd.notnull(r["学年年齢"]) else "-"
     is_iku = (r["契約区分"] == "育成")
+    salary_text = str(r["年俸_fmt"]) if pd.notnull(r["年俸_fmt"]) else "-"
     players_list.append({
         "no": int(r["No"]),
         "num": str(r["背番号"]),
         "name": str(r["選手名"]),
         "pos": str(r["守備位置"]),
         "age": str(p_age),
+        "salary": salary_text,
         "is_ikusei": is_iku,
         "status": "残留",
         "promoted": False
@@ -146,7 +175,7 @@ app_html = f"""
     .m-label {{ font-size: 0.65rem; color: #64748b; }}
     .m-val {{ font-size: 1.05rem; font-weight: bold; color: #0f172a; line-height: 1.1; }}
 
-    /* ★メインタブ切り替え（文字サイズをさらに小さく調整）★ */
+    /* メインタブ切り替え */
     .nav-tabs {{
         display: flex;
         border-bottom: 2px solid #e2e8f0;
@@ -171,7 +200,7 @@ app_html = f"""
         border-bottom: 2px solid #dc2626;
     }}
 
-    /* ★ポジションサブタブ（文字サイズをさらに小さく調整）★ */
+    /* ポジションサブタブ */
     .pos-tabs {{
         display: flex;
         gap: 3px;
@@ -220,10 +249,11 @@ app_html = f"""
         margin-bottom: 8px;
     }}
 
+    /* 年俸が入るため高さを少しだけ拡大（58px -> 62px） */
     .card {{
-        height: 58px;
+        height: 62px;
         border-radius: 6px;
-        padding: 4px 2px;
+        padding: 3px 2px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -237,16 +267,25 @@ app_html = f"""
     .card:active {{ transform: scale(0.95); }}
     
     .c-name {{
-        font-size: 11.5px;
+        font-size: 11px;
         font-weight: bold;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         width: 100%;
-        line-height: 1.2;
+        line-height: 1.15;
     }}
-    .c-sub {{ font-size: 9.5px; opacity: 0.8; line-height: 1; }}
-    .c-stat {{ font-size: 10px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.1; }}
+    /* 年齢と年俸の表示エリア */
+    .c-sub {{
+        font-size: 9px;
+        opacity: 0.85;
+        line-height: 1;
+        display: flex;
+        gap: 3px;
+        align-items: center;
+        justify-content: center;
+    }}
+    .c-stat {{ font-size: 9.5px; font-weight: bold; border-radius: 3px; padding: 1px 4px; line-height: 1.05; }}
 
     /* 配色 */
     .stat-残留 {{ background-color: #ffffff; border: 1.5px solid #cbd5e1; color: #1e293b; }}
@@ -731,17 +770,19 @@ app_html = f"""
         }});
 
         if (currentMainTab === 'roster') {{
+            // 【戦力整理タブ】年齢と年俸を表示
             const target = allPlayers.filter(p => (!p.is_ikusei || p.promoted) && p.pos === currentPos);
             target.forEach(p => {{
                 const card = document.createElement('div');
                 card.className = `card stat-${{p.status}}`;
                 const badge = p.promoted ? '🌱' : '';
+                const salaryDisp = p.salary !== '-' ? p.salary : '';
                 card.innerHTML = `
                     <div class="c-name">#${{p.num}} ${{p.name}}${{badge}}</div>
-                    <div class="c-sub">${{p.age}}歳</div>
+                    <div class="c-sub"><span>${{p.age}}歳</span>${{salaryDisp ? `<span>/ ${{salaryDisp}}</span>` : ''}}</div>
                     <div class="c-stat">${{p.status}}</div>
                 `;
-                card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳)`, false);
+                card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (${{p.age}}歳 / ${{p.salary}})`, false);
                 grid.appendChild(card);
             }});
         }} else if (currentMainTab === 'ikusei') {{
@@ -773,12 +814,13 @@ app_html = f"""
                         }}
 
                         card.className = `card ${{statClass}}`;
+                        const salaryDisp = p.salary !== '-' ? p.salary : '';
                         card.innerHTML = `
                             <div class="c-name">#${{p.num}} ${{p.name}}</div>
-                            <div class="c-sub">${{p.age}}歳</div>
+                            <div class="c-sub"><span>${{p.age}}歳</span>${{salaryDisp ? `<span>/ ${{salaryDisp}}</span>` : ''}}</div>
                             <div class="c-stat">${{statLabel}}</div>
                         `;
-                        card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (育成)`, true);
+                        card.onclick = (e) => openPopover(e.currentTarget, p.no, `#${{p.num}} ${{p.name}} (育成 / ${{p.salary}})`, true);
                         secGrid.appendChild(card);
                     }});
                     ikuContainer.appendChild(secGrid);
@@ -816,7 +858,7 @@ app_html = f"""
                 playersAtAge.forEach(p => {{
                     const badge = p.promoted ? '🌱' : '';
                     chipsHtml += `
-                        <div class="depth-chip stat-${{p.status}}" onclick="openPopover(this, ${{p.no}}, '#${{p.num}} ${{p.name}} (${{p.age}}歳)', false)">
+                        <div class="depth-chip stat-${{p.status}}" onclick="openPopover(this, ${{p.no}}, '#${{p.num}} ${{p.name}} (${{p.age}}歳 / ${{p.salary}})', false)">
                             ${{p.name}}${{badge}}
                         </div>
                     `;
